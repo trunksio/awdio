@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWebSocket, type WebSocketMessage } from "@/hooks/useWebSocket";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 
@@ -17,6 +17,8 @@ export interface VoiceInterruptProps {
   episodeId: string;
   currentSegmentIndex: number;
   wsBaseUrl: string;
+  listenerName?: string | null;
+  listenerId?: string | null;
   onInterruptStart?: () => void;
   onInterruptEnd?: () => void;
   onAnswerAudio?: (audioData: string, format: string) => void;
@@ -29,6 +31,8 @@ export function VoiceInterrupt({
   episodeId,
   currentSegmentIndex,
   wsBaseUrl,
+  listenerName,
+  listenerId,
   onInterruptStart,
   onInterruptEnd,
   onAnswerAudio,
@@ -140,8 +144,16 @@ export function VoiceInterrupt({
     };
   }, []);
 
-  // WebSocket connection
-  const wsUrl = `${wsBaseUrl}/ws/listen/${podcastId}/${episodeId}`;
+  // WebSocket connection with optional listener params
+  const wsUrl = useMemo(() => {
+    let url = `${wsBaseUrl}/ws/listen/${podcastId}/${episodeId}`;
+    const params = new URLSearchParams();
+    if (listenerName) params.set("listener_name", listenerName);
+    if (listenerId) params.set("listener_id", listenerId);
+    const queryString = params.toString();
+    if (queryString) url += `?${queryString}`;
+    return url;
+  }, [wsBaseUrl, podcastId, episodeId, listenerName, listenerId]);
 
   // Queue audio for playback
   const queueAudio = useCallback((audioData: string, format: string) => {

@@ -3,12 +3,34 @@ import type {
   Episode,
   EpisodeManifest,
   KnowledgeBase,
+  Listener,
   Podcast,
+  PodcastPresenter,
+  Presenter,
   Script,
   SpeakerConfig,
   Voice,
   VoiceAssignment,
 } from "./types";
+
+// Presenter Knowledge Base type (different from podcast KB)
+export interface PresenterKnowledgeBase {
+  id: string;
+  presenter_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+}
+
+export interface PresenterDocument {
+  id: string;
+  knowledge_base_id: string;
+  filename: string;
+  file_path: string;
+  file_type: string | null;
+  processed: boolean;
+  created_at: string;
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -254,6 +276,165 @@ export async function getEpisodeManifest(
   return fetchAPI<EpisodeManifest>(
     `/api/v1/podcasts/${podcastId}/episodes/${episodeId}/manifest`
   );
+}
+
+// Presenters
+export async function listPresenters(): Promise<Presenter[]> {
+  return fetchAPI<Presenter[]>("/api/v1/presenters");
+}
+
+export async function createPresenter(data: {
+  name: string;
+  bio?: string;
+  traits?: string[];
+  voice_id?: string;
+}): Promise<Presenter> {
+  return fetchAPI<Presenter>("/api/v1/presenters", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getPresenter(id: string): Promise<Presenter> {
+  return fetchAPI<Presenter>(`/api/v1/presenters/${id}`);
+}
+
+export async function updatePresenter(
+  id: string,
+  data: {
+    name?: string;
+    bio?: string;
+    traits?: string[];
+    voice_id?: string;
+  }
+): Promise<Presenter> {
+  return fetchAPI<Presenter>(`/api/v1/presenters/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePresenter(id: string): Promise<void> {
+  await fetchAPI(`/api/v1/presenters/${id}`, { method: "DELETE" });
+}
+
+// Presenter Knowledge Bases
+export async function listPresenterKnowledgeBases(
+  presenterId: string
+): Promise<PresenterKnowledgeBase[]> {
+  return fetchAPI<PresenterKnowledgeBase[]>(
+    `/api/v1/presenters/${presenterId}/knowledge-bases`
+  );
+}
+
+export async function createPresenterKnowledgeBase(
+  presenterId: string,
+  data: { name: string; description?: string }
+): Promise<PresenterKnowledgeBase> {
+  return fetchAPI<PresenterKnowledgeBase>(
+    `/api/v1/presenters/${presenterId}/knowledge-bases`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export async function deletePresenterKnowledgeBase(
+  presenterId: string,
+  kbId: string
+): Promise<void> {
+  await fetchAPI(`/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}`, {
+    method: "DELETE",
+  });
+}
+
+// Presenter Documents
+export async function listPresenterDocuments(
+  presenterId: string,
+  kbId: string
+): Promise<PresenterDocument[]> {
+  return fetchAPI<PresenterDocument[]>(
+    `/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}/documents`
+  );
+}
+
+export async function uploadPresenterDocument(
+  presenterId: string,
+  kbId: string,
+  file: File
+): Promise<PresenterDocument> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `${API_URL}/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}/documents`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function deletePresenterDocument(
+  presenterId: string,
+  kbId: string,
+  docId: string
+): Promise<void> {
+  await fetchAPI(
+    `/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}/documents/${docId}`,
+    { method: "DELETE" }
+  );
+}
+
+// Podcast Presenters (assignments)
+export async function listPodcastPresenters(
+  podcastId: string
+): Promise<PodcastPresenter[]> {
+  return fetchAPI<PodcastPresenter[]>(
+    `/api/v1/podcasts/${podcastId}/presenters`
+  );
+}
+
+export async function addPresenterToPodcast(
+  podcastId: string,
+  data: { presenter_id: string; role: string; display_name?: string }
+): Promise<PodcastPresenter> {
+  return fetchAPI<PodcastPresenter>(
+    `/api/v1/podcasts/${podcastId}/presenters`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export async function removePresenterFromPodcast(
+  podcastId: string,
+  presenterId: string
+): Promise<void> {
+  await fetchAPI(`/api/v1/podcasts/${podcastId}/presenters/${presenterId}`, {
+    method: "DELETE",
+  });
+}
+
+// Listeners
+export async function registerListener(data: { name: string }): Promise<Listener> {
+  return fetchAPI<Listener>("/api/v1/listeners/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getListener(id: string): Promise<Listener> {
+  return fetchAPI<Listener>(`/api/v1/listeners/${id}`);
 }
 
 export { API_URL };

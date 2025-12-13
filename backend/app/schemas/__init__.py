@@ -13,6 +13,19 @@ from app.schemas.podcast import (
     ScriptResponse,
     ScriptSegmentResponse,
 )
+from app.schemas.presenter import (
+    ListenerCreate,
+    ListenerResponse,
+    PodcastPresenterCreate,
+    PodcastPresenterResponse,
+    PodcastPresenterWithDetails,
+    PresenterCreate,
+    PresenterKnowledgeBaseCreate,
+    PresenterKnowledgeBaseResponse,
+    PresenterDocumentResponse,
+    PresenterResponse,
+    PresenterUpdate,
+)
 
 __all__ = [
     "PodcastCreate",
@@ -26,4 +39,15 @@ __all__ = [
     "KnowledgeBaseResponse",
     "DocumentCreate",
     "DocumentResponse",
+    "PresenterCreate",
+    "PresenterUpdate",
+    "PresenterResponse",
+    "PresenterKnowledgeBaseCreate",
+    "PresenterKnowledgeBaseResponse",
+    "PresenterDocumentResponse",
+    "PodcastPresenterCreate",
+    "PodcastPresenterResponse",
+    "PodcastPresenterWithDetails",
+    "ListenerCreate",
+    "ListenerResponse",
 ]

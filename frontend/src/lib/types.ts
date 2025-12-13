@@ -100,3 +100,32 @@ export interface EpisodeManifest {
   };
   created_at: string;
 }
+
+export interface Presenter {
+  id: string;
+  name: string;
+  bio: string | null;
+  traits: string[];
+  voice_id: string | null;
+  presenter_metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PodcastPresenter {
+  id: string;
+  podcast_id: string;
+  presenter_id: string;
+  role: string;
+  display_name: string | null;
+  created_at: string;
+  presenter?: Presenter;
+}
+
+export interface Listener {
+  id: string;
+  name: string;
+  listener_metadata: Record<string, unknown>;
+  first_seen_at: string;
+  last_seen_at: string;
+}

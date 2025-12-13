@@ -34,6 +34,9 @@ class Podcast(Base):
     voices: Mapped[list["PodcastVoice"]] = relationship(
         "PodcastVoice", back_populates="podcast", cascade="all, delete-orphan"
     )
+    presenters: Mapped[list["PodcastPresenter"]] = relationship(
+        "PodcastPresenter", back_populates="podcast", cascade="all, delete-orphan"
+    )
 
 
 class Episode(Base):
@@ -140,5 +143,6 @@ class EpisodeManifest(Base):
 
 
 # Forward references for type hints
-from app.models.knowledge_base import KnowledgeBase  # noqa: E402
-from app.models.voice import PodcastVoice, Voice  # noqa: E402
+from app.models.knowledge_base import KnowledgeBase  # noqa: E402, F401
+from app.models.presenter import PodcastPresenter  # noqa: E402, F401
+from app.models.voice import PodcastVoice, Voice  # noqa: E402, F401

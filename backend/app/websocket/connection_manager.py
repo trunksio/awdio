@@ -15,6 +15,8 @@ class ConnectionState:
     episode_id: uuid.UUID
     current_segment_index: int = 0
     is_interrupted: bool = False
+    listener_name: str | None = None
+    listener_id: uuid.UUID | None = None
     created_at: float = field(default_factory=lambda: asyncio.get_event_loop().time())
 
 
@@ -30,6 +32,8 @@ class ConnectionManager:
         connection_id: str,
         podcast_id: uuid.UUID,
         episode_id: uuid.UUID,
+        listener_name: str | None = None,
+        listener_id: uuid.UUID | None = None,
     ) -> None:
         """Accept a new WebSocket connection."""
         await websocket.accept()
@@ -37,6 +41,8 @@ class ConnectionManager:
             websocket=websocket,
             podcast_id=podcast_id,
             episode_id=episode_id,
+            listener_name=listener_name,
+            listener_id=listener_id,
         )
 
     def disconnect(self, connection_id: str) -> None:

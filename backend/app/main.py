@@ -1,7 +1,8 @@
 import uuid
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
@@ -43,9 +44,15 @@ async def websocket_listen(
     websocket: WebSocket,
     podcast_id: str,
     episode_id: str,
+    listener_name: Optional[str] = Query(None),
+    listener_id: Optional[str] = Query(None),
 ):
     """
     WebSocket endpoint for real-time podcast listening with voice Q&A.
+
+    Query params:
+    - listener_name: Optional name for personalization
+    - listener_id: Optional listener UUID for tracking
 
     Messages from client:
     - {"type": "segment_update", "segment_index": 0}
@@ -57,6 +64,7 @@ async def websocket_listen(
     Messages from server:
     - {"type": "interruption_started", "status": "listening"}
     - {"type": "question_received", "question": "..."}
+    - {"type": "acknowledgment_audio", "text": "...", "audio": "<base64>", "format": "wav"}
     - {"type": "answer_text", "text": "...", "sources": [...], "confidence": 0.8}
     - {"type": "synthesizing_audio"}
     - {"type": "answer_audio", "audio": "<base64>", "format": "wav"}
@@ -70,11 +78,19 @@ async def websocket_listen(
     try:
         podcast_uuid = uuid.UUID(podcast_id)
         episode_uuid = uuid.UUID(episode_id)
+        listener_uuid = uuid.UUID(listener_id) if listener_id else None
     except ValueError:
-        await websocket.close(code=4000, reason="Invalid podcast or episode ID")
+        await websocket.close(code=4000, reason="Invalid podcast, episode, or listener ID")
         return
 
-    await manager.connect(websocket, connection_id, podcast_uuid, episode_uuid)
+    await manager.connect(
+        websocket,
+        connection_id,
+        podcast_uuid,
+        episode_uuid,
+        listener_name=listener_name,
+        listener_id=listener_uuid,
+    )
 
     try:
         async with async_session_maker() as session:
@@ -88,6 +104,7 @@ async def websocket_listen(
                     "connection_id": connection_id,
                     "podcast_id": podcast_id,
                     "episode_id": episode_id,
+                    "listener_name": listener_name,
                 },
             )
 

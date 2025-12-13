@@ -6,6 +6,7 @@ import Link from "next/link";
 import { getEpisode, getEpisodeManifest, getPodcast } from "@/lib/api";
 import { PlaybackControls, SegmentManager, ProgressWaveform } from "@/components/player";
 import { VoiceInterrupt } from "@/components/voice";
+import { ListenerPrompt, useListener } from "@/components/listener/ListenerPrompt";
 import { useSegmentSequencer } from "@/hooks/useSegmentSequencer";
 import type { Episode, EpisodeManifest, Podcast } from "@/lib/types";
 
@@ -22,6 +23,9 @@ export default function ListenerPage() {
   const [manifest, setManifest] = useState<EpisodeManifest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Listener auth (simple name-based)
+  const { listener, showPrompt, isLoading: listenerLoading, handlePromptComplete } = useListener();
 
   // Interruption state
   const [isInterrupted, setIsInterrupted] = useState(false);
@@ -109,7 +113,7 @@ export default function ListenerPage() {
     }
   }, [sequencer]);
 
-  if (loading) {
+  if (loading || listenerLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
@@ -239,6 +243,8 @@ export default function ListenerPage() {
             episodeId={episodeId}
             currentSegmentIndex={sequencer.state.currentSegmentIndex}
             wsBaseUrl={WS_URL}
+            listenerName={listener?.name}
+            listenerId={listener?.id}
             onInterruptStart={handleInterruptStart}
             onInterruptEnd={handleInterruptEnd}
             onAnswerAudio={handleAnswerAudio}
@@ -248,6 +254,9 @@ export default function ListenerPage() {
         </div>
 
       </main>
+
+      {/* Listener Prompt Modal */}
+      {showPrompt && <ListenerPrompt onComplete={handlePromptComplete} />}
 
       {/* Footer */}
       <footer className="border-t border-gray-800 mt-auto">

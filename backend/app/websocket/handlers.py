@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.podcast import Episode, Script
+from app.models.presenter import PodcastPresenter, Presenter
 from app.services.rag import AnswerGenerator, BridgeGenerator, RAGQueryService
 from app.services.tts import NeuphonicsService, VoiceManager
 from app.websocket.connection_manager import ConnectionManager
@@ -79,14 +80,33 @@ class InterruptionHandler:
                 {"type": "question_received", "question": question},
             )
 
-            # Get voices for the conversation (host acknowledges, responder answers)
-            host_voice, responder_voice = await self._get_conversation_voices(conn.podcast_id)
+            # Get presenters for the conversation (try presenters first, fallback to voices)
+            host_presenter, responder_presenter = await self._get_conversation_presenters(conn.podcast_id)
+
+            # Get voices (from presenters or fallback)
+            host_voice = None
+            responder_voice = None
+
+            if host_presenter and host_presenter.voice_id:
+                host_voice = await self.voice_manager.get_voice(host_presenter.voice_id)
+            if responder_presenter and responder_presenter.voice_id:
+                responder_voice = await self.voice_manager.get_voice(responder_presenter.voice_id)
+
+            # Fallback to podcast_voices if no presenters
+            if not host_voice or not responder_voice:
+                fallback_host, fallback_responder = await self._get_conversation_voices(conn.podcast_id)
+                host_voice = host_voice or fallback_host
+                responder_voice = responder_voice or fallback_responder
+
+            # Get presenter names
+            host_name = host_presenter.name if host_presenter else "Host"
+            responder_name = responder_presenter.name if responder_presenter else "Expert"
 
             # IMMEDIATELY send acknowledgment audio to fill the gap
             if host_voice and responder_voice:
                 ack_text = self.bridge_generator.get_question_acknowledgment(
-                    host_name="Host",
-                    responder_name="Expert"
+                    host_name=host_name,
+                    responder_name=responder_name
                 )
                 print(f"[Q&A] Sending acknowledgment: {ack_text}")
 
@@ -115,18 +135,39 @@ class InterruptionHandler:
                 conn.episode_id, conn.current_segment_index
             )
 
-            context = await self.rag_query.retrieve_context(
+            # Get presenter IDs for combined RAG query
+            presenter_ids = []
+            if host_presenter:
+                presenter_ids.append(host_presenter.id)
+            if responder_presenter and responder_presenter.id != (host_presenter.id if host_presenter else None):
+                presenter_ids.append(responder_presenter.id)
+
+            # Use combined RAG (podcast KB + presenter KBs)
+            context = await self.rag_query.retrieve_combined_context(
                 question=question,
                 podcast_id=conn.podcast_id,
-                top_k=5,
+                presenter_ids=presenter_ids,
+                top_k=8,
             )
 
-            answer = await self.answer_generator.generate_answer(
-                question=question,
-                context=context,
-                current_topic=current_topic,
-                speaker_name="Expert",
-            )
+            # Generate answer with presenter personality
+            if responder_presenter:
+                answer = await self.answer_generator.generate_presenter_answer(
+                    question=question,
+                    context=context,
+                    presenter_name=responder_name,
+                    presenter_traits=responder_presenter.traits or [],
+                    listener_name=conn.listener_name,
+                    current_topic=current_topic,
+                )
+            else:
+                # Fallback to generic answer
+                answer = await self.answer_generator.generate_answer(
+                    question=question,
+                    context=context,
+                    current_topic=current_topic,
+                    speaker_name=responder_name,
+                )
 
             # Send answer text
             await self.manager.send_json(
@@ -171,7 +212,7 @@ class InterruptionHandler:
                 if next_segment_text:
                     # Use host voice for bridge back to content
                     bridge_voice = host_voice or voice
-                    bridge_text = self.bridge_generator.get_simple_bridge("Host")
+                    bridge_text = self.bridge_generator.get_simple_bridge(host_name)
 
                     bridge_audio = await self.tts.synthesize(
                         text=bridge_text,
@@ -311,3 +352,39 @@ class InterruptionHandler:
                 responder_voice = voices[1] if len(voices) > 1 else voices[0]
 
         return host_voice, responder_voice
+
+    async def _get_conversation_presenters(
+        self, podcast_id: uuid.UUID
+    ) -> tuple[Presenter | None, Presenter | None]:
+        """
+        Get two presenters for the Q&A conversation.
+        Returns (host_presenter, responder_presenter) - host acknowledges, responder answers.
+        """
+        result = await self.session.execute(
+            select(PodcastPresenter)
+            .options(selectinload(PodcastPresenter.presenter))
+            .where(PodcastPresenter.podcast_id == podcast_id)
+        )
+        assignments = result.scalars().all()
+
+        host_presenter = None
+        responder_presenter = None
+
+        for assignment in assignments:
+            if assignment.role == "host" and not host_presenter:
+                host_presenter = assignment.presenter
+            elif assignment.role in ("expert", "cohost", "guest") and not responder_presenter:
+                responder_presenter = assignment.presenter
+
+        # If no specific responder found, use the first non-host presenter
+        if not responder_presenter:
+            for assignment in assignments:
+                if assignment.presenter != host_presenter:
+                    responder_presenter = assignment.presenter
+                    break
+
+        # If still no responder, use host as both (single presenter podcast)
+        if not responder_presenter and host_presenter:
+            responder_presenter = host_presenter
+
+        return host_presenter, responder_presenter

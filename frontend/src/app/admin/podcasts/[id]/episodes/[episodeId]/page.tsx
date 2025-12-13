@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
-  assignVoiceToPodcast,
   generateScript,
   getEpisode,
   getEpisodeManifest,
@@ -12,7 +11,6 @@ import {
   getPodcastVoiceAssignments,
   getScript,
   listVoices,
-  syncVoices,
   synthesizeEpisode,
 } from "@/lib/api";
 import type {
@@ -127,31 +125,6 @@ export default function EpisodeDetailPage() {
     const updated = [...speakers];
     updated[index] = { ...updated[index], [field]: value };
     setSpeakers(updated);
-  }
-
-  async function handleSyncVoices() {
-    try {
-      setError(null);
-      const data = await syncVoices();
-      setVoices(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to sync voices");
-    }
-  }
-
-  async function handleAssignVoice(speakerName: string, voiceId: string) {
-    try {
-      setError(null);
-      await assignVoiceToPodcast(podcastId, {
-        voice_id: voiceId,
-        role: "speaker",
-        speaker_name: speakerName,
-      });
-      const assignmentsData = await getPodcastVoiceAssignments(podcastId);
-      setVoiceAssignments(assignmentsData);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to assign voice");
-    }
   }
 
   async function handleSynthesize() {
@@ -306,57 +279,6 @@ export default function EpisodeDetailPage() {
               )}
             </div>
           </div>
-
-          {/* Voice Assignment */}
-          {script && (
-            <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold">Voice Assignment</h2>
-                {voices.length === 0 && (
-                  <button
-                    onClick={handleSyncVoices}
-                    className="text-sm px-3 py-1 border border-gray-600 rounded hover:bg-gray-800"
-                  >
-                    Sync Voices
-                  </button>
-                )}
-              </div>
-
-              {voices.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  No voices available. Click &quot;Sync Voices&quot; to fetch from Neuphonic.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {Array.from(new Set(script.segments.map(s => s.speaker_name))).map((speakerName) => {
-                    const assignedVoice = getVoiceForSpeaker(speakerName);
-                    return (
-                      <div key={speakerName} className="p-3 bg-gray-800 rounded-lg">
-                        <div className="text-sm font-medium mb-2">{speakerName}</div>
-                        <select
-                          value={assignedVoice?.id || ""}
-                          onChange={(e) => handleAssignVoice(speakerName, e.target.value)}
-                          className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm"
-                        >
-                          <option value="">Auto-assign</option>
-                          {voices.map((voice) => (
-                            <option key={voice.id} value={voice.id}>
-                              {voice.name}
-                            </option>
-                          ))}
-                        </select>
-                        {assignedVoice && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            Assigned: {assignedVoice.name}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Synthesis */}
           {script && (

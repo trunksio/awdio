@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
+  addPresenterToPodcast,
   createEpisode,
   createKnowledgeBase,
   deleteDocument,
@@ -12,9 +13,12 @@ import {
   listDocuments,
   listEpisodes,
   listKnowledgeBases,
+  listPodcastPresenters,
+  listPresenters,
+  removePresenterFromPodcast,
   uploadDocument,
 } from "@/lib/api";
-import type { Episode, KnowledgeBase, Podcast, Document } from "@/lib/types";
+import type { Episode, KnowledgeBase, Podcast, Document, Presenter, PodcastPresenter } from "@/lib/types";
 
 export default function PodcastDetailPage() {
   const params = useParams();
@@ -28,6 +32,13 @@ export default function PodcastDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Presenters
+  const [allPresenters, setAllPresenters] = useState<Presenter[]>([]);
+  const [podcastPresenters, setPodcastPresenters] = useState<PodcastPresenter[]>([]);
+  const [showAddPresenter, setShowAddPresenter] = useState(false);
+  const [selectedPresenter, setSelectedPresenter] = useState("");
+  const [presenterRole, setPresenterRole] = useState("host");
+
   // Forms
   const [showCreateEpisode, setShowCreateEpisode] = useState(false);
   const [showCreateKB, setShowCreateKB] = useState(false);
@@ -38,14 +49,18 @@ export default function PodcastDetailPage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [podcastData, episodesData, kbData] = await Promise.all([
+      const [podcastData, episodesData, kbData, allPresenterData, podcastPresenterData] = await Promise.all([
         getPodcast(podcastId),
         listEpisodes(podcastId),
         listKnowledgeBases(podcastId),
+        listPresenters(),
+        listPodcastPresenters(podcastId),
       ]);
       setPodcast(podcastData);
       setEpisodes(episodesData);
       setKnowledgeBases(kbData);
+      setAllPresenters(allPresenterData);
+      setPodcastPresenters(podcastPresenterData);
 
       if (kbData.length > 0 && !selectedKB) {
         setSelectedKB(kbData[0].id);
@@ -141,6 +156,45 @@ export default function PodcastDetailPage() {
     }
   }
 
+  async function handleAddPresenter(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedPresenter) return;
+
+    try {
+      await addPresenterToPodcast(podcastId, {
+        presenter_id: selectedPresenter,
+        role: presenterRole,
+      });
+      setSelectedPresenter("");
+      setPresenterRole("host");
+      setShowAddPresenter(false);
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add presenter");
+    }
+  }
+
+  async function handleRemovePresenter(presenterId: string) {
+    if (!confirm("Remove this presenter from the podcast?")) return;
+
+    try {
+      await removePresenterFromPodcast(podcastId, presenterId);
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to remove presenter");
+    }
+  }
+
+  function getPresenterName(presenterId: string): string {
+    const presenter = allPresenters.find((p) => p.id === presenterId);
+    return presenter ? presenter.name : "Unknown";
+  }
+
+  function getAvailablePresenters(): Presenter[] {
+    const assignedIds = podcastPresenters.map((pp) => pp.presenter_id);
+    return allPresenters.filter((p) => !assignedIds.includes(p.id));
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -170,6 +224,105 @@ export default function PodcastDetailPage() {
           {error}
         </div>
       )}
+
+      {/* Presenters Section */}
+      <div className="mb-8 bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Presenters</h2>
+          {getAvailablePresenters().length > 0 && (
+            <button
+              onClick={() => setShowAddPresenter(true)}
+              className="text-sm px-3 py-1 border border-gray-600 rounded hover:bg-gray-800"
+            >
+              + Add Presenter
+            </button>
+          )}
+        </div>
+
+        {showAddPresenter && (
+          <form onSubmit={handleAddPresenter} className="mb-4 p-4 bg-gray-800 rounded-lg">
+            <div className="flex gap-4 items-end">
+              <div className="flex-1">
+                <label className="block text-sm text-gray-400 mb-1">Presenter</label>
+                <select
+                  value={selectedPresenter}
+                  onChange={(e) => setSelectedPresenter(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded"
+                  required
+                >
+                  <option value="">Select presenter...</option>
+                  {getAvailablePresenters().map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-40">
+                <label className="block text-sm text-gray-400 mb-1">Role</label>
+                <select
+                  value={presenterRole}
+                  onChange={(e) => setPresenterRole(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded"
+                >
+                  <option value="host">Host</option>
+                  <option value="cohost">Co-host</option>
+                  <option value="expert">Expert</option>
+                  <option value="guest">Guest</option>
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <button type="submit" className="px-3 py-2 bg-white text-black rounded text-sm">
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddPresenter(false)}
+                  className="px-3 py-2 border border-gray-600 rounded text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {podcastPresenters.length === 0 ? (
+          <p className="text-gray-500 text-sm">
+            No presenters assigned. Add presenters to enable Q&A with personality.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            {podcastPresenters.map((pp) => (
+              <div
+                key={pp.id}
+                className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg"
+              >
+                <div>
+                  <span className="font-medium">{getPresenterName(pp.presenter_id)}</span>
+                  <span className="text-sm text-gray-400 ml-2 capitalize">({pp.role})</span>
+                </div>
+                <button
+                  onClick={() => handleRemovePresenter(pp.presenter_id)}
+                  className="text-red-400 hover:text-red-300 text-sm"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {allPresenters.length === 0 && (
+          <p className="text-gray-500 text-sm mt-2">
+            No presenters exist yet.{" "}
+            <a href="/admin/presenters" className="text-white hover:underline">
+              Create a presenter
+            </a>{" "}
+            first.
+          </p>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Knowledge Bases Section */}

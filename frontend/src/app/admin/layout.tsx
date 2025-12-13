@@ -20,6 +20,12 @@ export default function AdminLayout({
               >
                 Podcasts
               </Link>
+              <Link
+                href="/admin/presenters"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                Presenters
+              </Link>
             </div>
             <div className="flex items-center">
               <span className="text-sm text-gray-500">Admin Panel</span>

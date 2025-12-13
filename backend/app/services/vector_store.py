@@ -5,6 +5,7 @@ from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge_base import Chunk
+from app.models.presenter import PresenterChunk
 
 
 class VectorStore:
@@ -107,3 +108,120 @@ class VectorStore:
 
         await self.session.flush()
         return count
+
+    async def presenter_similarity_search(
+        self,
+        query_embedding: list[float],
+        presenter_id: uuid.UUID,
+        top_k: int = 5,
+        threshold: float | None = None,
+    ) -> list[dict]:
+        """Find most similar chunks from a presenter's knowledge base."""
+        embedding_str = str(query_embedding)
+        presenter_id_str = str(presenter_id)
+
+        query = text("""
+            SELECT
+                pc.id,
+                pc.content,
+                pc.chunk_index,
+                pc.chunk_metadata,
+                pc.document_id,
+                pd.filename,
+                pkb.presenter_id,
+                p.name as presenter_name,
+                1 - (pc.embedding <=> CAST(:emb AS vector)) as similarity
+            FROM presenter_chunks pc
+            JOIN presenter_documents pd ON pc.document_id = pd.id
+            JOIN presenter_knowledge_bases pkb ON pd.knowledge_base_id = pkb.id
+            JOIN presenters p ON pkb.presenter_id = p.id
+            WHERE pkb.presenter_id = CAST(:presenter_id AS uuid)
+            ORDER BY pc.embedding <=> CAST(:emb AS vector)
+            LIMIT :lim
+        """).bindparams(
+            bindparam("emb", value=embedding_str),
+            bindparam("presenter_id", value=presenter_id_str),
+            bindparam("lim", value=top_k),
+        )
+
+        result = await self.session.execute(query)
+        rows = result.fetchall()
+        results = []
+
+        for row in rows:
+            similarity = float(row.similarity)
+            if threshold is None or similarity >= threshold:
+                results.append({
+                    "id": row.id,
+                    "content": row.content,
+                    "chunk_index": row.chunk_index,
+                    "metadata": row.chunk_metadata,
+                    "document_id": row.document_id,
+                    "filename": row.filename,
+                    "presenter_id": row.presenter_id,
+                    "presenter_name": row.presenter_name,
+                    "similarity": similarity,
+                    "source_type": "presenter",
+                })
+
+        return results
+
+    async def multi_presenter_similarity_search(
+        self,
+        query_embedding: list[float],
+        presenter_ids: list[uuid.UUID],
+        top_k: int = 5,
+        threshold: float | None = None,
+    ) -> list[dict]:
+        """Find most similar chunks across multiple presenters' knowledge bases."""
+        if not presenter_ids:
+            return []
+
+        embedding_str = str(query_embedding)
+        presenter_ids_str = [str(pid) for pid in presenter_ids]
+
+        query = text("""
+            SELECT
+                pc.id,
+                pc.content,
+                pc.chunk_index,
+                pc.chunk_metadata,
+                pc.document_id,
+                pd.filename,
+                pkb.presenter_id,
+                p.name as presenter_name,
+                1 - (pc.embedding <=> CAST(:emb AS vector)) as similarity
+            FROM presenter_chunks pc
+            JOIN presenter_documents pd ON pc.document_id = pd.id
+            JOIN presenter_knowledge_bases pkb ON pd.knowledge_base_id = pkb.id
+            JOIN presenters p ON pkb.presenter_id = p.id
+            WHERE pkb.presenter_id = ANY(CAST(:presenter_ids AS uuid[]))
+            ORDER BY pc.embedding <=> CAST(:emb AS vector)
+            LIMIT :lim
+        """).bindparams(
+            bindparam("emb", value=embedding_str),
+            bindparam("presenter_ids", value=presenter_ids_str),
+            bindparam("lim", value=top_k),
+        )
+
+        result = await self.session.execute(query)
+        rows = result.fetchall()
+        results = []
+
+        for row in rows:
+            similarity = float(row.similarity)
+            if threshold is None or similarity >= threshold:
+                results.append({
+                    "id": row.id,
+                    "content": row.content,
+                    "chunk_index": row.chunk_index,
+                    "metadata": row.chunk_metadata,
+                    "document_id": row.document_id,
+                    "filename": row.filename,
+                    "presenter_id": row.presenter_id,
+                    "presenter_name": row.presenter_name,
+                    "similarity": similarity,
+                    "source_type": "presenter",
+                })
+
+        return results
