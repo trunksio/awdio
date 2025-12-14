@@ -125,6 +125,7 @@ class AwdioInterruptionHandler:
                         text=ack_text,
                         voice_id=voice.effective_voice_id,
                         speed=1.0,
+                        low_latency=True,  # Use fast model for real-time Q&A
                     )
                     ack_b64 = base64.b64encode(ack_audio).decode("utf-8")
                     await self.manager.send_json(
@@ -234,6 +235,7 @@ class AwdioInterruptionHandler:
                     voice_id=voice.effective_voice_id,
                     speed=1.0,
                     output_format=output_format,
+                    low_latency=True,  # Use fast model for real-time Q&A
                 )
 
                 # Chunk audio if it's too large (e.g., > 600KB) to prevent WebSocket disconnects
@@ -283,6 +285,7 @@ class AwdioInterruptionHandler:
                         text=bridge_text,
                         voice_id=voice.effective_voice_id,
                         speed=1.0,
+                        low_latency=True,  # Use fast model for real-time Q&A
                     )
 
                     bridge_b64 = base64.b64encode(bridge_audio).decode("utf-8")

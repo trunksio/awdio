@@ -18,7 +18,15 @@ class ElevenLabsService(TTSProvider):
     - Voice clones (Instant Voice Clones recommended for v3)
     - Audio tags for emotional control: [whispers], [excited], [sad], etc.
     - Stability settings for natural speech variation
+
+    Models:
+    - eleven_multilingual_v2: Highest quality, best for pre-generated content
+    - eleven_flash_v2_5: Fastest, ~75% lower latency, best for real-time Q&A
     """
+
+    # Model constants
+    MODEL_QUALITY = "eleven_multilingual_v2"  # Best quality for pre-generated audio
+    MODEL_FAST = "eleven_flash_v2_5"  # Fastest for real-time/interactive use
 
     def __init__(self):
         self.client = ElevenLabs(api_key=settings.elevenlabs_api_key)
@@ -71,6 +79,7 @@ class ElevenLabsService(TTSProvider):
         style: float = 0.0,
         use_speaker_boost: bool = True,
         output_format: str = "wav",
+        low_latency: bool = False,
         **kwargs,
     ) -> bytes:
         """
@@ -86,6 +95,7 @@ class ElevenLabsService(TTSProvider):
             style: Style exaggeration (0-1). Higher = more dramatic
             use_speaker_boost: Boost voice clarity for lower quality source audio
             output_format: "wav" or "mp3"
+            low_latency: If True, use Flash v2.5 model for faster generation (best for Q&A)
 
         Returns:
             Audio bytes in requested format
@@ -93,7 +103,10 @@ class ElevenLabsService(TTSProvider):
         # Normalize text
         text = self.normalize_text(text)
 
-        print(f"[ElevenLabs TTS] Synthesizing text ({len(text)} chars) with voice_id: {voice_id}, format: {output_format}")
+        # Select model based on latency requirement
+        model_id = self.MODEL_FAST if low_latency else self.MODEL_QUALITY
+
+        print(f"[ElevenLabs TTS] Synthesizing text ({len(text)} chars) with voice_id: {voice_id}, model: {model_id}, format: {output_format}")
         print(f"[ElevenLabs TTS] Text preview: {text[:100]}...")
 
         try:
@@ -117,7 +130,7 @@ class ElevenLabsService(TTSProvider):
                 audio_generator = self.client.text_to_speech.convert(
                     voice_id=voice_id,
                     text=text,
-                    model_id="eleven_multilingual_v2",  # Best for natural speech
+                    model_id=model_id,
                     voice_settings=voice_settings,
                     output_format=el_format,
                 )
@@ -165,6 +178,7 @@ class ElevenLabsService(TTSProvider):
         speed: float = 1.0,
         stability: float = 0.5,
         similarity_boost: float = 0.75,
+        low_latency: bool = False,
         **kwargs,
     ) -> AsyncGenerator[bytes, None]:
         """
@@ -176,12 +190,16 @@ class ElevenLabsService(TTSProvider):
             speed: Speech speed multiplier
             stability: Voice consistency (0-1)
             similarity_boost: Voice clarity (0-1)
+            low_latency: If True, use Flash v2.5 model for faster generation
 
         Yields:
             Audio chunks as PCM bytes (16-bit, 22050 Hz)
         """
         # Normalize text
         text = self.normalize_text(text)
+
+        # Select model based on latency requirement
+        model_id = self.MODEL_FAST if low_latency else self.MODEL_QUALITY
 
         try:
             voice_settings = VoiceSettings(
@@ -196,7 +214,7 @@ class ElevenLabsService(TTSProvider):
                 return self.client.text_to_speech.convert_as_stream(
                     voice_id=voice_id,
                     text=text,
-                    model_id="eleven_multilingual_v2",
+                    model_id=model_id,
                     voice_settings=voice_settings,
                     output_format="pcm_22050",
                 )
