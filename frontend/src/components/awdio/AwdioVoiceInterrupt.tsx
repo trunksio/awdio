@@ -492,17 +492,63 @@ export const AwdioVoiceInterrupt = memo(function AwdioVoiceInterrupt({
 
   const isActive = state !== "idle" && state !== "error";
 
+  // Touch handlers for mobile push-to-talk
+  const isTouchHeldRef = useRef(false);
+  const [isTouchHeld, setIsTouchHeld] = useState(false);
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (disabled || !ws.isConnected || !speech.isSupported) return;
+      if (stateRef.current !== "idle") return;
+
+      e.preventDefault();
+      console.log("[Awdio PTT] Touch start, starting recording");
+      isTouchHeldRef.current = true;
+      setIsTouchHeld(true);
+      startInterrupt();
+    },
+    [disabled, ws.isConnected, speech.isSupported, startInterrupt]
+  );
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (!isTouchHeldRef.current) return;
+
+      e.preventDefault();
+      console.log("[Awdio PTT] Touch end, state:", stateRef.current);
+      isTouchHeldRef.current = false;
+      setIsTouchHeld(false);
+
+      if (stateRef.current === "listening") {
+        console.log("[Awdio PTT] Calling finishAndSend from touch");
+        finishAndSend();
+      }
+    },
+    [finishAndSend]
+  );
+
+  // Handle click for cancel (when already active)
+  const handleClick = useCallback(() => {
+    // Only handle click for cancel - push-to-talk is handled by touch/keyboard
+    if (isActive) {
+      cancelInterrupt();
+    }
+  }, [isActive, cancelInterrupt]);
+
   return (
     <div className="relative">
       {/* Main interrupt button */}
       <button
-        onClick={isActive ? cancelInterrupt : startInterrupt}
+        onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         disabled={disabled || !ws.isConnected || !speech.isSupported}
         className={`
           relative w-16 h-16 rounded-full flex items-center justify-center
-          transition-all duration-200
+          transition-all duration-200 select-none touch-none
           ${
-            isActive
+            isActive || isTouchHeld || isSpaceHeld
               ? "bg-red-500 hover:bg-red-600 scale-110"
               : "bg-white/10 backdrop-blur-sm hover:bg-white/20"
           }
@@ -514,8 +560,8 @@ export const AwdioVoiceInterrupt = memo(function AwdioVoiceInterrupt({
             : !ws.isConnected
             ? "Connecting..."
             : isActive
-            ? "Cancel question"
-            : "Hold SPACE to ask"
+            ? "Tap to cancel"
+            : "Hold to ask (or SPACE)"
         }
       >
         {/* Mic icon */}
@@ -568,7 +614,12 @@ export const AwdioVoiceInterrupt = memo(function AwdioVoiceInterrupt({
 
       {/* Status text */}
       <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-white/60">
-        {state === "idle" && ws.isConnected && "Hold SPACE to ask"}
+        {state === "idle" && ws.isConnected && (
+          <span className="flex flex-col items-center gap-0.5">
+            <span className="sm:hidden">Hold to ask</span>
+            <span className="hidden sm:inline">Hold SPACE to ask</span>
+          </span>
+        )}
         {state === "idle" && !ws.isConnected && "Connecting..."}
         {state === "listening" && (transcriptRef.current || "Listening...")}
         {state === "processing" && "Thinking..."}
