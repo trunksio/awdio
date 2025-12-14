@@ -154,6 +154,8 @@ class PresenterKBImage(Base):
     # MinIO path to full-resolution image
     thumbnail_path: Mapped[str | None] = mapped_column(String(500))
     # MinIO path to thumbnail
+    presentation_path: Mapped[str | None] = mapped_column(String(500))
+    # MinIO path to optimized presentation image (1920x1080 max, JPEG)
 
     title: Mapped[str | None] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text)

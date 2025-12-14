@@ -22,6 +22,8 @@ class SlideProcessor:
     """Processes slide images for metadata extraction and embedding generation."""
 
     THUMBNAIL_SIZE = (320, 180)  # 16:9 aspect ratio thumbnail
+    PRESENTATION_MAX_SIZE = (1920, 1080)  # Max size for presentation display
+    PRESENTATION_QUALITY = 85  # JPEG quality for presentation images
     VISION_MODEL = "gpt-4o"
 
     def __init__(self):
@@ -72,6 +74,47 @@ class SlideProcessor:
         )
 
         return thumbnail_path
+
+    async def generate_presentation_image(
+        self,
+        image_content: bytes,
+        awdio_id: uuid.UUID,
+        slide_deck_id: uuid.UUID,
+        slide_id: uuid.UUID,
+    ) -> str:
+        """
+        Generate and upload a presentation-optimized image.
+
+        - Resizes to max 1920x1080 while maintaining aspect ratio
+        - Converts to JPEG at 85% quality for good balance of quality and size
+        """
+        # Load image
+        img = Image.open(io.BytesIO(image_content))
+
+        # Convert to RGB if necessary (JPEG doesn't support alpha)
+        if img.mode in ("RGBA", "LA", "P"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Only resize if larger than max size
+        if img.width > self.PRESENTATION_MAX_SIZE[0] or img.height > self.PRESENTATION_MAX_SIZE[1]:
+            img.thumbnail(self.PRESENTATION_MAX_SIZE, Image.Resampling.LANCZOS)
+
+        # Save as JPEG with good quality
+        output = io.BytesIO()
+        img.save(output, format="JPEG", quality=self.PRESENTATION_QUALITY, optimize=True)
+        pres_bytes = output.getvalue()
+
+        # Upload to storage
+        object_name = f"awdios/{awdio_id}/slides/{slide_deck_id}/{slide_id}_pres.jpg"
+        presentation_path = await self.storage.upload_file(pres_bytes, object_name, "image/jpeg")
+
+        return presentation_path
 
     async def analyze_slide(
         self, image_content: bytes
@@ -175,13 +218,19 @@ Respond in JSON format:
         """
         Fully process a slide:
         1. Generate thumbnail
-        2. Analyze with vision model
-        3. Generate embedding
+        2. Generate presentation-optimized image
+        3. Analyze with vision model
+        4. Generate embedding
 
-        Returns dict with: thumbnail_path, title, description, keywords, embedding
+        Returns dict with: thumbnail_path, presentation_path, title, description, keywords, embedding
         """
         # Generate thumbnail
         thumbnail_path = await self.generate_thumbnail(
+            image_content, awdio_id, slide_deck_id, slide_id
+        )
+
+        # Generate presentation-optimized image
+        presentation_path = await self.generate_presentation_image(
             image_content, awdio_id, slide_deck_id, slide_id
         )
 
@@ -197,6 +246,7 @@ Respond in JSON format:
 
         return {
             "thumbnail_path": thumbnail_path,
+            "presentation_path": presentation_path,
             "title": analysis.get("title"),
             "description": analysis.get("description"),
             "keywords": analysis.get("keywords", []),

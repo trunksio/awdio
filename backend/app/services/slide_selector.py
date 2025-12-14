@@ -307,10 +307,12 @@ class SlideSelector:
                 best_match = slide
 
         if best_match:
+            # Prefer presentation_path if available, fall back to image_path
+            visual_path = best_match.presentation_path or best_match.image_path
             return VisualSelectionResult(
                 visual_type="slide",
                 visual_id=best_match.id,
-                visual_path=best_match.image_path,
+                visual_path=visual_path,
                 thumbnail_path=best_match.thumbnail_path,
                 confidence=best_score,
                 reason=self._generate_reason(best_match, question),
@@ -352,10 +354,12 @@ class SlideSelector:
                 best_match = image
 
         if best_match:
+            # Prefer presentation_path if available, fall back to image_path
+            visual_path = best_match.presentation_path or best_match.image_path
             return VisualSelectionResult(
                 visual_type="kb_image",
                 visual_id=best_match.id,
-                visual_path=best_match.image_path,
+                visual_path=visual_path,
                 thumbnail_path=best_match.thumbnail_path,
                 confidence=best_score,
                 reason=self._generate_kb_image_reason(best_match),
@@ -396,10 +400,12 @@ class SlideSelector:
                 best_match = image
 
         if best_match:
+            # Prefer presentation_path if available, fall back to image_path
+            visual_path = best_match.presentation_path or best_match.image_path
             return VisualSelectionResult(
                 visual_type="kb_image",
                 visual_id=best_match.id,
-                visual_path=best_match.image_path,
+                visual_path=visual_path,
                 thumbnail_path=best_match.thumbnail_path,
                 confidence=best_score,
                 reason=self._generate_kb_image_reason(best_match),

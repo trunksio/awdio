@@ -25,6 +25,8 @@ class KBImageProcessor:
     """Processes and manages knowledge base images for presenters and awdios."""
 
     THUMBNAIL_SIZE = (320, 180)  # 16:9 aspect ratio thumbnail
+    PRESENTATION_MAX_SIZE = (1920, 1080)  # Max size for presentation display
+    PRESENTATION_QUALITY = 85  # JPEG quality for presentation images
     ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
     def __init__(self):
@@ -70,6 +72,35 @@ class KBImageProcessor:
         # Save to bytes
         output = io.BytesIO()
         thumb.save(output, format="PNG", optimize=True)
+        return output.getvalue()
+
+    async def _generate_presentation_image(self, image_content: bytes) -> bytes:
+        """
+        Generate a presentation-optimized image.
+
+        - Resizes to max 1920x1080 while maintaining aspect ratio
+        - Converts to JPEG at 85% quality for good balance of quality and size
+        - Typically reduces a 6MB PNG to 200-400KB JPEG
+        """
+        img = Image.open(io.BytesIO(image_content))
+
+        # Convert to RGB if necessary (JPEG doesn't support alpha)
+        if img.mode in ("RGBA", "LA", "P"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Only resize if larger than max size
+        if img.width > self.PRESENTATION_MAX_SIZE[0] or img.height > self.PRESENTATION_MAX_SIZE[1]:
+            img.thumbnail(self.PRESENTATION_MAX_SIZE, Image.Resampling.LANCZOS)
+
+        # Save as JPEG with good quality
+        output = io.BytesIO()
+        img.save(output, format="JPEG", quality=self.PRESENTATION_QUALITY, optimize=True)
         return output.getvalue()
 
     async def upload_presenter_image(
@@ -122,6 +153,11 @@ class KBImageProcessor:
         thumb_object_name = f"presenters/{kb.presenter_id}/kb-images/{knowledge_base_id}/{image_id}_thumb.png"
         thumbnail_path = await self.storage.upload_file(thumbnail_bytes, thumb_object_name, "image/png")
 
+        # Generate and upload presentation-optimized image
+        presentation_bytes = await self._generate_presentation_image(file_content)
+        pres_object_name = f"presenters/{kb.presenter_id}/kb-images/{knowledge_base_id}/{image_id}_pres.jpg"
+        presentation_path = await self.storage.upload_file(presentation_bytes, pres_object_name, "image/jpeg")
+
         # Generate embedding from associated text
         embedding = await self.embedding_service.embed_text(associated_text)
 
@@ -132,12 +168,14 @@ class KBImageProcessor:
             filename=filename,
             image_path=image_path,
             thumbnail_path=thumbnail_path,
+            presentation_path=presentation_path,
             title=title,
             description=description,
             associated_text=associated_text,
             embedding=embedding,
             image_metadata={
                 "original_size": len(file_content),
+                "presentation_size": len(presentation_bytes),
                 "content_type": content_type,
             },
         )
@@ -198,6 +236,11 @@ class KBImageProcessor:
         thumb_object_name = f"awdios/{kb.awdio_id}/kb-images/{knowledge_base_id}/{image_id}_thumb.png"
         thumbnail_path = await self.storage.upload_file(thumbnail_bytes, thumb_object_name, "image/png")
 
+        # Generate and upload presentation-optimized image
+        presentation_bytes = await self._generate_presentation_image(file_content)
+        pres_object_name = f"awdios/{kb.awdio_id}/kb-images/{knowledge_base_id}/{image_id}_pres.jpg"
+        presentation_path = await self.storage.upload_file(presentation_bytes, pres_object_name, "image/jpeg")
+
         # Generate embedding from associated text
         embedding = await self.embedding_service.embed_text(associated_text)
 
@@ -208,12 +251,14 @@ class KBImageProcessor:
             filename=filename,
             image_path=image_path,
             thumbnail_path=thumbnail_path,
+            presentation_path=presentation_path,
             title=title,
             description=description,
             associated_text=associated_text,
             embedding=embedding,
             image_metadata={
                 "original_size": len(file_content),
+                "presentation_size": len(presentation_bytes),
                 "content_type": content_type,
             },
         )
@@ -244,6 +289,10 @@ class KBImageProcessor:
             object_name = image.thumbnail_path.split("/", 1)[1] if "/" in image.thumbnail_path else image.thumbnail_path
             await self.storage.delete_file(object_name)
 
+        if image.presentation_path:
+            object_name = image.presentation_path.split("/", 1)[1] if "/" in image.presentation_path else image.presentation_path
+            await self.storage.delete_file(object_name)
+
         # Delete database record
         await db.delete(image)
         await db.commit()
@@ -267,6 +316,10 @@ class KBImageProcessor:
 
         if image.thumbnail_path:
             object_name = image.thumbnail_path.split("/", 1)[1] if "/" in image.thumbnail_path else image.thumbnail_path
+            await self.storage.delete_file(object_name)
+
+        if image.presentation_path:
+            object_name = image.presentation_path.split("/", 1)[1] if "/" in image.presentation_path else image.presentation_path
             await self.storage.delete_file(object_name)
 
         # Delete database record

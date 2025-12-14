@@ -566,6 +566,7 @@ async def process_slide(
 
     # Update slide with processed data
     slide.thumbnail_path = result_data["thumbnail_path"]
+    slide.presentation_path = result_data.get("presentation_path")
     slide.title = result_data["title"]
     slide.description = result_data["description"]
     slide.keywords = result_data["keywords"]
@@ -629,6 +630,7 @@ async def process_all_slides_stream(
 
                 # Update slide in DB
                 slide.thumbnail_path = result_data["thumbnail_path"]
+                slide.presentation_path = result_data.get("presentation_path")
                 slide.title = result_data["title"]
                 slide.description = result_data["description"]
                 slide.keywords = result_data["keywords"]
@@ -648,6 +650,7 @@ async def process_all_slides_stream(
                         "description": slide.description,
                         "keywords": slide.keywords,
                         "thumbnail_path": slide.thumbnail_path,
+                        "presentation_path": slide.presentation_path,
                     }
                 }
                 yield f"data: {json.dumps(slide_data)}\n\n"
@@ -1107,12 +1110,16 @@ async def synthesize_session(
             segment.audio_duration_ms = audio_duration_ms
 
             # Build manifest segment
+            # Prefer presentation_path (optimized JPEG) over original image_path
             slide = slides_map.get(segment.slide_id)
+            slide_path = ""
+            if slide:
+                slide_path = slide.presentation_path or slide.image_path
             manifest_segments.append({
                 "index": segment.segment_index,
                 "slide_id": str(segment.slide_id),
                 "slide_index": slide.slide_index if slide else segment.segment_index,
-                "slide_path": slide.image_path if slide else "",
+                "slide_path": slide_path,
                 "thumbnail_path": slide.thumbnail_path if slide else None,
                 "audio_path": audio_path,
                 "duration_ms": audio_duration_ms,
