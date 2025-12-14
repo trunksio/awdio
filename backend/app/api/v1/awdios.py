@@ -30,6 +30,8 @@ from app.schemas.awdio import (
     AwdioResponse,
     AwdioUpdate,
     NarrationScriptResponse,
+    NarrationSegmentResponse,
+    NarrationSegmentUpdate,
     SessionCreate,
     SessionManifestResponse,
     SessionResponse,
@@ -1158,6 +1160,173 @@ async def synthesize_session(
     await db.commit()
     await db.refresh(manifest)
     return manifest
+
+
+# ============================================
+# Segment editing and re-synthesis
+# ============================================
+
+
+@router.put(
+    "/{awdio_id}/sessions/{session_id}/segments/{segment_id}",
+    response_model=NarrationSegmentResponse,
+)
+async def update_segment(
+    awdio_id: uuid.UUID,
+    session_id: uuid.UUID,
+    segment_id: uuid.UUID,
+    data: NarrationSegmentUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> NarrationSegment:
+    """Update a narration segment's content."""
+    # Verify the segment belongs to this session/awdio
+    result = await db.execute(
+        select(NarrationSegment)
+        .join(NarrationScript)
+        .join(AwdioSession)
+        .where(
+            NarrationSegment.id == segment_id,
+            NarrationScript.session_id == session_id,
+            AwdioSession.awdio_id == awdio_id,
+        )
+    )
+    segment = result.scalar_one_or_none()
+    if not segment:
+        raise HTTPException(status_code=404, detail="Segment not found")
+
+    # Update content
+    segment.content = data.content
+
+    # Recalculate duration estimate (~150 words per minute, ~5 chars per word)
+    chars_per_ms = 150 * 5 / 60000
+    segment.duration_estimate_ms = int(len(data.content) / chars_per_ms) if data.content else 0
+
+    # Clear audio since content changed
+    segment.audio_path = None
+    segment.audio_duration_ms = None
+
+    await db.commit()
+    await db.refresh(segment)
+    return segment
+
+
+@router.post(
+    "/{awdio_id}/sessions/{session_id}/segments/{segment_id}/synthesize",
+    response_model=NarrationSegmentResponse,
+)
+async def synthesize_segment(
+    awdio_id: uuid.UUID,
+    session_id: uuid.UUID,
+    segment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> NarrationSegment:
+    """Synthesize audio for a single segment."""
+    # Verify the segment belongs to this session/awdio
+    result = await db.execute(
+        select(NarrationSegment)
+        .join(NarrationScript)
+        .join(AwdioSession)
+        .where(
+            NarrationSegment.id == segment_id,
+            NarrationScript.session_id == session_id,
+            AwdioSession.awdio_id == awdio_id,
+        )
+    )
+    segment = result.scalar_one_or_none()
+    if not segment:
+        raise HTTPException(status_code=404, detail="Segment not found")
+
+    # Get awdio presenter for voice
+    awdio_result = await db.execute(
+        select(Awdio).options(selectinload(Awdio.presenter)).where(Awdio.id == awdio_id)
+    )
+    awdio = awdio_result.scalar_one()
+
+    # Get voice from presenter
+    voice = None
+    if awdio.presenter and awdio.presenter.voice_id:
+        from app.models.voice import Voice
+
+        voice_result = await db.execute(
+            select(Voice).where(Voice.id == awdio.presenter.voice_id)
+        )
+        voice = voice_result.scalar_one_or_none()
+
+    # If no voice configured, get a default voice
+    if not voice:
+        from app.models.voice import Voice
+
+        default_voice_result = await db.execute(select(Voice).limit(1))
+        voice = default_voice_result.scalar_one_or_none()
+        if not voice:
+            raise HTTPException(status_code=400, detail="No voices available. Please sync voices first.")
+
+    # Get voice ID
+    voice_id = voice.effective_voice_id
+    if not voice_id:
+        raise HTTPException(status_code=400, detail=f"Voice '{voice.name}' has no provider voice ID configured.")
+
+    # Synthesize audio
+    from app.services.tts import TTSFactory
+
+    tts = TTSFactory.get_provider(voice.tts_provider)
+    storage = StorageService()
+
+    try:
+        audio_content = await tts.synthesize(
+            text=segment.content,
+            voice_id=voice_id,
+            speed=1.0,
+        )
+
+        # Upload to storage
+        audio_path = await storage.upload_awdio_audio(
+            audio_content,
+            awdio_id,
+            session_id,
+            segment.segment_index,
+            format="wav",
+        )
+
+        # Get audio duration (WAV at 22050 Hz, 16-bit mono = 44100 bytes/sec)
+        audio_duration_ms = int((len(audio_content) - 44) / 44100 * 1000)
+
+        # Update segment
+        segment.audio_path = audio_path
+        segment.audio_duration_ms = audio_duration_ms
+
+        await db.commit()
+        await db.refresh(segment)
+
+        # Also update the manifest if it exists
+        manifest_result = await db.execute(
+            select(SessionManifest).where(SessionManifest.session_id == session_id)
+        )
+        manifest = manifest_result.scalar_one_or_none()
+        if manifest and manifest.manifest:
+            # Update the segment in manifest
+            segments = manifest.manifest.get("segments", [])
+            for i, seg in enumerate(segments):
+                if seg.get("index") == segment.segment_index:
+                    segments[i]["audio_path"] = audio_path
+                    segments[i]["duration_ms"] = audio_duration_ms
+                    segments[i]["text"] = segment.content
+                    break
+
+            # Recalculate total duration
+            total_duration_ms = sum(s.get("duration_ms", 0) for s in segments)
+            manifest.manifest["segments"] = segments
+            manifest.manifest["total_duration_ms"] = total_duration_ms
+            manifest.total_duration_ms = total_duration_ms
+
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(manifest, "manifest")
+            await db.commit()
+
+        return segment
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
 
 
 # ============================================

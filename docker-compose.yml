@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: awdio
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U awdio"]
       interval: 5s
@@ -23,9 +21,6 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - minio_data:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 5s
@@ -48,7 +43,7 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "8000:8000"
+      - "8002:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -58,17 +53,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      target: runner
+      args:
+        NEXT_PUBLIC_API_URL: /awdio
+        NEXT_PUBLIC_BASE_PATH: /awdio
     ports:
-      - "3000:3000"
+      - "3003:3000"
     depends_on:
       - backend
-    command: npm run dev
 
 volumes:
   postgres_data:

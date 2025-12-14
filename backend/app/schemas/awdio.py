@@ -110,6 +110,10 @@ class NarrationScriptGenerateRequest(BaseModel):
     additional_instructions: str = ""
 
 
+class NarrationSegmentUpdate(BaseModel):
+    content: str
+
+
 class NarrationSegmentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

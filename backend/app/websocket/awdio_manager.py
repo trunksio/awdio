@@ -95,7 +95,8 @@ class AwdioConnectionManager:
             try:
                 await conn.websocket.send_json(data)
                 return True
-            except Exception:
+            except Exception as e:
+                print(f"[Awdio WS] Failed to send JSON to {connection_id}: {e}")
                 self.disconnect(connection_id)
                 return False
         return False

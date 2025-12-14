@@ -29,6 +29,7 @@ export function SlideViewer({
   // Reset states when slide URL actually changes (by value)
   useEffect(() => {
     if (slideUrl !== lastSlideUrlRef.current) {
+      console.log("[SlideViewer] URL changed:", { from: lastSlideUrlRef.current, to: slideUrl });
       lastSlideUrlRef.current = slideUrl;
       setImageError(false);
       setImageLoaded(false);
@@ -45,8 +46,9 @@ export function SlideViewer({
   }, []);
 
   const handleImageError = useCallback(() => {
+    console.error("[SlideViewer] Image failed to load:", slideUrl);
     setImageError(true);
-  }, []);
+  }, [slideUrl]);
 
   return (
     <div

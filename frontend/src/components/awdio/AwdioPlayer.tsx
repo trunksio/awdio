@@ -250,6 +250,11 @@ export function AwdioPlayer({
     // Show the selected visual (slide or KB image) during Q&A
     // visualPath is stored as "bucket/object/path"
     const url = `${slideBaseUrl}/api/v1/audio/${event.visualPath}`;
+    console.log("[AwdioPlayer] handleVisualSelect called:", {
+      event,
+      url,
+      slideBaseUrl,
+    });
     setQaSlideUrl(url);
     setQaVisualType(event.visualType);
     setQaVisualSource(event.source);

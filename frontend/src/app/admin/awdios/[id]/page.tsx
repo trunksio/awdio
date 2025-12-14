@@ -15,6 +15,7 @@ import {
   updateAwdio,
   updateSlide,
   processAllSlides,
+  processSlide,
   listAwdioSessions,
   createAwdioSession,
   deleteAwdioSession,
@@ -55,6 +56,7 @@ export default function AwdioDetailPage() {
     total: number;
     currentSlideId?: string;
   } | null>(null);
+  const [processingSlideId, setProcessingSlideId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Create session
@@ -292,6 +294,34 @@ export default function AwdioDetailPage() {
       setProcessingProgress(null);
       setError("Connection lost while processing slides");
     };
+  }
+
+  async function handleProcessSingleSlide(slideId: string) {
+    if (!selectedDeck || processingSlideId) return;
+
+    try {
+      setProcessingSlideId(slideId);
+      setError(null);
+      const updatedSlide = await processSlide(awdioId, selectedDeck.id, slideId);
+      // Update the slide in local state
+      setSlides((prev) =>
+        prev.map((s) =>
+          s.id === updatedSlide.id
+            ? {
+                ...s,
+                title: updatedSlide.title,
+                description: updatedSlide.description,
+                keywords: updatedSlide.keywords,
+                thumbnail_path: updatedSlide.thumbnail_path,
+              }
+            : s
+        )
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to process slide");
+    } finally {
+      setProcessingSlideId(null);
+    }
   }
 
   async function handleCreateSession(e: React.FormEvent) {
@@ -629,7 +659,7 @@ export default function AwdioDetailPage() {
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {slides.map((slide) => {
-                    const isProcessingThisSlide = processingProgress?.currentSlideId === slide.id;
+                    const isProcessingThisSlide = processingProgress?.currentSlideId === slide.id || processingSlideId === slide.id;
                     return (
                     <div
                       key={slide.id}
@@ -668,6 +698,13 @@ export default function AwdioDetailPage() {
                         </span>
                       </div>
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleProcessSingleSlide(slide.id)}
+                          disabled={!!processingSlideId || processing}
+                          className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Process
+                        </button>
                         <button
                           onClick={() => openSlideEditor(slide)}
                           className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-500"

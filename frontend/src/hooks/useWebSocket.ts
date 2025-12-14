@@ -44,10 +44,19 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
   const [error, setError] = useState<string | null>(null);
 
   const connect = useCallback(() => {
+    console.log("[useWebSocket] connect() called with url:", url);
+
+    if (!url) {
+      console.log("[useWebSocket] URL is empty, skipping connect");
+      return;
+    }
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log("[useWebSocket] Already open, skipping");
       return;
     }
     if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+      console.log("[useWebSocket] Already connecting, skipping");
       return;
     }
 
@@ -56,6 +65,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
     setError(null);
 
     try {
+      console.log("[useWebSocket] Creating WebSocket to:", url);
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
@@ -80,6 +90,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       };
 
       ws.onerror = (wsEvent) => {
+        console.error("[useWebSocket] WebSocket error:", wsEvent);
         setError("WebSocket connection error");
         setIsConnecting(false);
         optionsRef.current.onError?.(wsEvent);

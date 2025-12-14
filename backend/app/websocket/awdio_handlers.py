@@ -174,34 +174,35 @@ class AwdioInterruptionHandler:
             # If we selected a visual, notify the client
             should_show_visual = False
             if selected_visual:
+                print(f"[Awdio Q&A] Visual selected: type={selected_visual.visual_type}, source={selected_visual.source}, path={selected_visual.visual_path}")
                 # For slides, only show if it's a different slide
                 if selected_visual.visual_type == "slide":
                     should_show_visual = selected_visual.slide_index != conn.current_slide_index
                 else:
                     # For KB images, always show
                     should_show_visual = True
+            else:
+                print("[Awdio Q&A] No visual selected")
 
             if selected_visual and should_show_visual:
-                # Extract the object path for the visual
-                visual_path = selected_visual.visual_path.split("/", 1)[-1] if "/" in selected_visual.visual_path else selected_visual.visual_path
-                thumbnail_path = None
-                if selected_visual.thumbnail_path:
-                    thumbnail_path = selected_visual.thumbnail_path.split("/", 1)[-1] if "/" in selected_visual.thumbnail_path else selected_visual.thumbnail_path
+                # Use the full path including bucket prefix (e.g., "awdio/presenters/.../image.png")
+                # The frontend will construct the URL as /api/v1/audio/{visual_path}
+                visual_path = selected_visual.visual_path
+                thumbnail_path = selected_visual.thumbnail_path
 
-                await self.manager.send_json(
-                    self.connection_id,
-                    {
-                        "type": "qa_visual_select",
-                        "visual_type": selected_visual.visual_type,
-                        "visual_id": str(selected_visual.visual_id),
-                        "visual_path": visual_path,
-                        "thumbnail_path": thumbnail_path,
-                        "source": selected_visual.source,
-                        "slide_index": selected_visual.slide_index,  # None for KB images
-                        "reason": selected_visual.reason,
-                        "confidence": selected_visual.confidence,
-                    },
-                )
+                visual_msg = {
+                    "type": "qa_visual_select",
+                    "visual_type": selected_visual.visual_type,
+                    "visual_id": str(selected_visual.visual_id),
+                    "visual_path": visual_path,
+                    "thumbnail_path": thumbnail_path,
+                    "source": selected_visual.source,
+                    "slide_index": selected_visual.slide_index,  # None for KB images
+                    "reason": selected_visual.reason,
+                    "confidence": float(selected_visual.confidence),  # Convert numpy float to Python float
+                }
+                print(f"[Awdio Q&A] Sending qa_visual_select: {visual_msg}")
+                await self.manager.send_json(self.connection_id, visual_msg)
 
             # Send answer text
             await self.manager.send_json(
@@ -265,17 +266,9 @@ class AwdioInterruptionHandler:
                         },
                     )
 
-                # If we showed a visual, send clear signal
-                if selected_visual and should_show_visual:
-                    return_slide_index = conn.interrupted_slide_index if conn.interrupted_slide_index is not None else conn.current_slide_index
-
-                    await self.manager.send_json(
-                        self.connection_id,
-                        {
-                            "type": "qa_visual_clear",
-                            "return_to_slide_index": return_slide_index,
-                        },
-                    )
+                # Note: Don't send qa_visual_clear here - the frontend will clear the visual
+                # when ready_to_resume is received and all audio has finished playing.
+                # Sending it here causes the image to disappear while audio is still playing.
 
                 # Generate bridge back to content
                 next_segment_text = await self._get_next_segment_text(

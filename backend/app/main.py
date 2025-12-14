@@ -167,6 +167,7 @@ async def websocket_awdio(
     - {"type": "error", "error": "..."}
     - {"type": "pong"}
     """
+    print(f"[WebSocket] Awdio connection attempt: awdio={awdio_id}, session={session_id}")
     connection_id = str(uuid.uuid4())
 
     try:

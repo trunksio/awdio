@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAwdio, getAwdioSession, getAwdioSessionManifest } from "@/lib/api";
@@ -8,7 +8,6 @@ import type { Awdio, AwdioSession, SessionManifest } from "@/lib/types";
 import { AwdioPlayer } from "@/components/awdio";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const WS_URL = API_URL.replace(/^http/, "ws");
 
 export default function WatchPage() {
   const params = useParams();
@@ -20,6 +19,26 @@ export default function WatchPage() {
   const [manifest, setManifest] = useState<SessionManifest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  // Mark when we're on the client
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Compute WebSocket URL only on client
+  const wsUrl = useMemo(() => {
+    if (!isClient) return "";
+
+    // If API_URL is a relative path (e.g., /awdio), construct WS URL from window.location
+    if (API_URL.startsWith("/")) {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${window.location.host}${API_URL}`;
+    }
+
+    // Otherwise, replace http with ws
+    return API_URL.replace(/^http/, "ws");
+  }, [isClient]);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +75,7 @@ export default function WatchPage() {
     };
   }, [awdioId, sessionId]);
 
-  if (loading) {
+  if (loading || !isClient) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -143,7 +162,7 @@ export default function WatchPage() {
           manifest={manifest}
           audioBaseUrl={API_URL}
           slideBaseUrl={API_URL}
-          wsBaseUrl={WS_URL}
+          wsBaseUrl={wsUrl}
           awdioId={awdioId}
           sessionId={sessionId}
           title={session.title}

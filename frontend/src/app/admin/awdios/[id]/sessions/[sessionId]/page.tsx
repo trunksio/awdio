@@ -10,12 +10,15 @@ import {
   getAwdioSessionManifest,
   generateAwdioSessionScript,
   synthesizeAwdioSession,
+  updateNarrationSegment,
+  synthesizeSegment,
   listSlides,
 } from "@/lib/api";
 import type {
   Awdio,
   AwdioSession,
   NarrationScript,
+  NarrationSegment,
   SessionManifest,
   Slide,
 } from "@/lib/types";
@@ -34,6 +37,12 @@ export default function SessionDetailPage() {
   const [generating, setGenerating] = useState(false);
   const [synthesizing, setSynthesizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Segment editing
+  const [editingSegment, setEditingSegment] = useState<NarrationSegment | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [savingSegment, setSavingSegment] = useState(false);
+  const [synthesizingSegmentId, setSynthesizingSegmentId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -104,6 +113,73 @@ export default function SessionDetailPage() {
       setError(e instanceof Error ? e.message : "Failed to synthesize audio");
     } finally {
       setSynthesizing(false);
+    }
+  }
+
+  function openSegmentEditor(segment: NarrationSegment) {
+    setEditingSegment(segment);
+    setEditContent(segment.content);
+  }
+
+  function closeSegmentEditor() {
+    setEditingSegment(null);
+    setEditContent("");
+  }
+
+  async function handleSaveSegment() {
+    if (!editingSegment) return;
+
+    try {
+      setSavingSegment(true);
+      setError(null);
+      const updatedSegment = await updateNarrationSegment(
+        awdioId,
+        sessionId,
+        editingSegment.id,
+        editContent
+      );
+      // Update local state
+      if (script) {
+        setScript({
+          ...script,
+          segments: script.segments.map((s) =>
+            s.id === updatedSegment.id ? updatedSegment : s
+          ),
+        });
+      }
+      closeSegmentEditor();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save segment");
+    } finally {
+      setSavingSegment(false);
+    }
+  }
+
+  async function handleSynthesizeSegment(segmentId: string) {
+    try {
+      setSynthesizingSegmentId(segmentId);
+      setError(null);
+      const updatedSegment = await synthesizeSegment(awdioId, sessionId, segmentId);
+      // Update local state
+      if (script) {
+        setScript({
+          ...script,
+          segments: script.segments.map((s) =>
+            s.id === updatedSegment.id ? updatedSegment : s
+          ),
+        });
+      }
+      // Reload manifest since it may have been updated
+      try {
+        const manifestData = await getAwdioSessionManifest(awdioId, sessionId);
+        setManifest(manifestData);
+      } catch {
+        // Manifest may not exist yet
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to synthesize segment");
+    } finally {
+      setSynthesizingSegmentId(null);
     }
   }
 
@@ -283,10 +359,13 @@ export default function SessionDetailPage() {
                 .sort((a, b) => a.segment_index - b.segment_index)
                 .map((segment) => {
                   const slide = getSlideForSegment(segment.slide_id);
+                  const isSynthesizingThis = synthesizingSegmentId === segment.id;
                   return (
                     <div
                       key={segment.id}
-                      className="p-4 bg-gray-800 rounded-lg"
+                      className={`p-4 bg-gray-800 rounded-lg ${
+                        isSynthesizingThis ? "ring-2 ring-blue-500" : ""
+                      }`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -297,31 +376,49 @@ export default function SessionDetailPage() {
                             {segment.speaker_name}
                           </span>
                         </div>
-                        <span className="text-xs text-gray-500">
-                          #{segment.segment_index + 1}
-                          {segment.audio_duration_ms ? (
-                            <span className="text-green-400">
-                              {" "}
-                              • {Math.round(segment.audio_duration_ms / 1000)}s
-                            </span>
-                          ) : (
-                            segment.duration_estimate_ms && (
-                              <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">
+                            #{segment.segment_index + 1}
+                            {segment.audio_duration_ms ? (
+                              <span className="text-green-400">
                                 {" "}
-                                • ~{Math.round(segment.duration_estimate_ms / 1000)}s
-                              </>
-                            )
-                          )}
-                        </span>
+                                • {Math.round(segment.audio_duration_ms / 1000)}s
+                              </span>
+                            ) : (
+                              segment.duration_estimate_ms && (
+                                <>
+                                  {" "}
+                                  • ~{Math.round(segment.duration_estimate_ms / 1000)}s
+                                </>
+                              )
+                            )}
+                          </span>
+                          <button
+                            onClick={() => openSegmentEditor(segment)}
+                            disabled={isSynthesizingThis}
+                            className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-50"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleSynthesizeSegment(segment.id)}
+                            disabled={!!synthesizingSegmentId || synthesizing}
+                            className="px-2 py-1 text-xs bg-green-700 text-white rounded hover:bg-green-600 disabled:opacity-50"
+                          >
+                            {isSynthesizingThis ? "Synthesizing..." : segment.audio_path ? "Re-synth" : "Synthesize"}
+                          </button>
+                        </div>
                       </div>
                       <p className="text-gray-300 whitespace-pre-wrap">
                         {segment.content}
                       </p>
-                      {segment.audio_path && (
-                        <div className="mt-2 text-xs text-green-400">
-                          Audio ready
-                        </div>
-                      )}
+                      <div className="mt-2 flex items-center gap-2">
+                        {segment.audio_path ? (
+                          <span className="text-xs text-green-400">Audio ready</span>
+                        ) : (
+                          <span className="text-xs text-yellow-400">No audio</span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -329,6 +426,67 @@ export default function SessionDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Segment Edit Modal */}
+      {editingSegment && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                Edit Segment #{editingSegment.segment_index + 1}
+              </h3>
+              <button
+                onClick={closeSegmentEditor}
+                className="text-gray-400 hover:text-white"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Narration Content
+                  <span className="text-gray-400 font-normal ml-2">
+                    (Edit the text to be synthesized)
+                  </span>
+                </label>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  placeholder="Enter the narration text..."
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm min-h-[200px] resize-y"
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  After saving, click &quot;Re-synth&quot; to generate new audio for this segment.
+                </p>
+              </div>
+              {editingSegment.audio_path && (
+                <p className="text-xs text-yellow-400">
+                  Note: Saving will clear the current audio. You&apos;ll need to re-synthesize after editing.
+                </p>
+              )}
+            </div>
+            <div className="p-4 border-t border-gray-800 flex justify-end gap-2">
+              <button
+                onClick={closeSegmentEditor}
+                className="px-4 py-2 text-sm border border-gray-600 rounded hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveSegment}
+                disabled={savingSegment || editContent === editingSegment.content}
+                className="px-4 py-2 text-sm bg-white text-black font-medium rounded hover:bg-gray-200 disabled:opacity-50"
+              >
+                {savingSegment ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

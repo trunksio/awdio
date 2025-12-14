@@ -10,6 +10,7 @@ import type {
   KnowledgeBase,
   Listener,
   NarrationScript,
+  NarrationSegment,
   Podcast,
   PodcastPresenter,
   Presenter,
@@ -719,6 +720,33 @@ export async function synthesizeAwdioSession(
 ): Promise<SessionManifest> {
   return fetchAPI<SessionManifest>(
     `/api/v1/awdios/${awdioId}/sessions/${sessionId}/synthesize`,
+    { method: "POST" }
+  );
+}
+
+// Narration Segments
+export async function updateNarrationSegment(
+  awdioId: string,
+  sessionId: string,
+  segmentId: string,
+  content: string
+): Promise<NarrationSegment> {
+  return fetchAPI<NarrationSegment>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/segments/${segmentId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }
+  );
+}
+
+export async function synthesizeSegment(
+  awdioId: string,
+  sessionId: string,
+  segmentId: string
+): Promise<NarrationSegment> {
+  return fetchAPI<NarrationSegment>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/segments/${segmentId}/synthesize`,
     { method: "POST" }
   );
 }

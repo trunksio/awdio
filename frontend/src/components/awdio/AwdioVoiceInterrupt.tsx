@@ -172,12 +172,17 @@ export const AwdioVoiceInterrupt = memo(function AwdioVoiceInterrupt({
 
   // WebSocket URL for awdio
   const wsUrl = useMemo(() => {
+    if (!wsBaseUrl) {
+      console.log("[AwdioVoiceInterrupt] wsBaseUrl is empty");
+      return "";
+    }
     let url = `${wsBaseUrl}/ws/awdio/${awdioId}/${sessionId}`;
     const params = new URLSearchParams();
     if (listenerName) params.set("listener_name", listenerName);
     if (listenerId) params.set("listener_id", listenerId);
     const queryString = params.toString();
     if (queryString) url += `?${queryString}`;
+    console.log("[AwdioVoiceInterrupt] wsUrl created:", url);
     return url;
   }, [wsBaseUrl, awdioId, sessionId, listenerName, listenerId]);
 
@@ -189,6 +194,7 @@ export const AwdioVoiceInterrupt = memo(function AwdioVoiceInterrupt({
 
   const handleMessage = useCallback(
     (message: WebSocketMessage) => {
+      console.log("[Awdio WS] Received message:", message.type, message);
       switch (message.type) {
         case "connected":
           console.log("[Awdio] WebSocket connected:", message);
@@ -333,6 +339,11 @@ export const AwdioVoiceInterrupt = memo(function AwdioVoiceInterrupt({
 
   // Connect WebSocket on mount
   useEffect(() => {
+    console.log("[AwdioVoiceInterrupt] wsUrl:", wsUrl);
+    if (!wsUrl) {
+      console.log("[AwdioVoiceInterrupt] wsUrl is empty, skipping connect");
+      return;
+    }
     ws.connect();
     return () => {
       ws.disconnect();
