@@ -31,6 +31,9 @@ dependencies = [
     "pypdf>=5.0.0",
     "python-docx>=1.1.0",
 
+    # Image processing
+    "pillow>=10.0.0",
+
     # Object storage
     "minio>=7.2.0",
 

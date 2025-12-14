@@ -21,6 +21,12 @@ export default function AdminLayout({
                 Podcasts
               </Link>
               <Link
+                href="/admin/awdios"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                Awdios
+              </Link>
+              <Link
                 href="/admin/presenters"
                 className="text-gray-400 hover:text-white transition-colors"
               >

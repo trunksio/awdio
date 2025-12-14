@@ -58,6 +58,22 @@ class NeuphonicsService:
         except Exception as e:
             raise RuntimeError(f"Failed to list voices: {e}")
 
+    def _normalize_text(self, text: str) -> str:
+        """Normalize text for TTS - replace fancy quotes and other problematic characters."""
+        # Replace fancy quotes with ASCII equivalents
+        replacements = {
+            '\u2018': "'",  # Left single quotation mark
+            '\u2019': "'",  # Right single quotation mark
+            '\u201C': '"',  # Left double quotation mark
+            '\u201D': '"',  # Right double quotation mark
+            '\u2013': '-',  # En dash
+            '\u2014': '-',  # Em dash
+            '\u2026': '...',  # Ellipsis
+        }
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+        return text
+
     async def synthesize(
         self,
         text: str,
@@ -75,6 +91,9 @@ class NeuphonicsService:
         Returns:
             Audio bytes in WAV format
         """
+        # Normalize text to avoid API issues with fancy unicode characters
+        text = self._normalize_text(text)
+
         print(f"[TTS] Synthesizing text ({len(text)} chars) with voice_id: {voice_id}")
         print(f"[TTS] Text preview: {text[:100]}...")
         try:
@@ -148,6 +167,9 @@ class NeuphonicsService:
         Yields:
             Audio chunks as bytes
         """
+        # Normalize text to avoid API issues with fancy unicode characters
+        text = self._normalize_text(text)
+
         try:
             sse = self.client.tts.SSEClient()
 

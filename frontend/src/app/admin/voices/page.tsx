@@ -100,7 +100,7 @@ export default function VoicesPage() {
               <p className="text-sm text-gray-500 font-mono truncate">
                 {voice.neuphonic_voice_id}
               </p>
-              {voice.voice_metadata?.tags && Array.isArray(voice.voice_metadata.tags) && (
+              {voice.voice_metadata?.tags && Array.isArray(voice.voice_metadata.tags) ? (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {(voice.voice_metadata.tags as string[]).map((tag) => (
                     <span
@@ -111,7 +111,7 @@ export default function VoicesPage() {
                     </span>
                   ))}
                 </div>
-              )}
+              ) : null}
             </div>
           ))}
         </div>

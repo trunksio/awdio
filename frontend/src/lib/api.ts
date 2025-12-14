@@ -1,13 +1,21 @@
 import type {
+  Awdio,
+  AwdioDocument,
+  AwdioKnowledgeBase,
+  AwdioSession,
   Document,
   Episode,
   EpisodeManifest,
   KnowledgeBase,
   Listener,
+  NarrationScript,
   Podcast,
   PodcastPresenter,
   Presenter,
   Script,
+  SessionManifest,
+  Slide,
+  SlideDeck,
   SpeakerConfig,
   Voice,
   VoiceAssignment,
@@ -435,6 +443,349 @@ export async function registerListener(data: { name: string }): Promise<Listener
 
 export async function getListener(id: string): Promise<Listener> {
   return fetchAPI<Listener>(`/api/v1/listeners/${id}`);
+}
+
+// ============================================
+// Awdios
+// ============================================
+
+export async function listAwdios(): Promise<Awdio[]> {
+  return fetchAPI<Awdio[]>("/api/v1/awdios");
+}
+
+export async function createAwdio(data: {
+  title: string;
+  description?: string;
+  presenter_id?: string;
+}): Promise<Awdio> {
+  return fetchAPI<Awdio>("/api/v1/awdios", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getAwdio(id: string): Promise<Awdio> {
+  return fetchAPI<Awdio>(`/api/v1/awdios/${id}`);
+}
+
+export async function updateAwdio(
+  id: string,
+  data: {
+    title?: string;
+    description?: string;
+    presenter_id?: string;
+    status?: string;
+  }
+): Promise<Awdio> {
+  return fetchAPI<Awdio>(`/api/v1/awdios/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteAwdio(id: string): Promise<void> {
+  await fetchAPI(`/api/v1/awdios/${id}`, { method: "DELETE" });
+}
+
+// Slide Decks
+export async function listSlideDecks(awdioId: string): Promise<SlideDeck[]> {
+  return fetchAPI<SlideDeck[]>(`/api/v1/awdios/${awdioId}/slide-decks`);
+}
+
+export async function createSlideDeck(
+  awdioId: string,
+  data: { name: string; description?: string }
+): Promise<SlideDeck> {
+  return fetchAPI<SlideDeck>(`/api/v1/awdios/${awdioId}/slide-decks`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getSlideDeck(
+  awdioId: string,
+  deckId: string
+): Promise<SlideDeck> {
+  return fetchAPI<SlideDeck>(`/api/v1/awdios/${awdioId}/slide-decks/${deckId}`);
+}
+
+export async function deleteSlideDeck(
+  awdioId: string,
+  deckId: string
+): Promise<void> {
+  await fetchAPI(`/api/v1/awdios/${awdioId}/slide-decks/${deckId}`, {
+    method: "DELETE",
+  });
+}
+
+// Slides
+export async function listSlides(
+  awdioId: string,
+  deckId: string
+): Promise<Slide[]> {
+  return fetchAPI<Slide[]>(
+    `/api/v1/awdios/${awdioId}/slide-decks/${deckId}/slides`
+  );
+}
+
+export async function uploadSlide(
+  awdioId: string,
+  deckId: string,
+  file: File
+): Promise<Slide> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `${API_URL}/api/v1/awdios/${awdioId}/slide-decks/${deckId}/slides`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function uploadSlidesBulk(
+  awdioId: string,
+  deckId: string,
+  files: File[]
+): Promise<Slide[]> {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+
+  const response = await fetch(
+    `${API_URL}/api/v1/awdios/${awdioId}/slide-decks/${deckId}/slides/bulk`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function updateSlide(
+  awdioId: string,
+  deckId: string,
+  slideId: string,
+  data: { title?: string; description?: string; keywords?: string[]; speaker_notes?: string }
+): Promise<Slide> {
+  return fetchAPI<Slide>(
+    `/api/v1/awdios/${awdioId}/slide-decks/${deckId}/slides/${slideId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export async function deleteSlide(
+  awdioId: string,
+  deckId: string,
+  slideId: string
+): Promise<void> {
+  await fetchAPI(
+    `/api/v1/awdios/${awdioId}/slide-decks/${deckId}/slides/${slideId}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function reorderSlides(
+  awdioId: string,
+  deckId: string,
+  slideIds: string[]
+): Promise<Slide[]> {
+  return fetchAPI<Slide[]>(
+    `/api/v1/awdios/${awdioId}/slide-decks/${deckId}/slides/reorder`,
+    {
+      method: "POST",
+      body: JSON.stringify({ slide_ids: slideIds }),
+    }
+  );
+}
+
+export async function processSlide(
+  awdioId: string,
+  deckId: string,
+  slideId: string
+): Promise<Slide> {
+  return fetchAPI<Slide>(
+    `/api/v1/awdios/${awdioId}/slide-decks/${deckId}/slides/${slideId}/process`,
+    { method: "POST" }
+  );
+}
+
+export async function processAllSlides(
+  awdioId: string,
+  deckId: string
+): Promise<Slide[]> {
+  return fetchAPI<Slide[]>(
+    `/api/v1/awdios/${awdioId}/slide-decks/${deckId}/process-all`,
+    { method: "POST" }
+  );
+}
+
+// Awdio Sessions
+export async function listAwdioSessions(
+  awdioId: string
+): Promise<AwdioSession[]> {
+  return fetchAPI<AwdioSession[]>(`/api/v1/awdios/${awdioId}/sessions`);
+}
+
+export async function createAwdioSession(
+  awdioId: string,
+  data: { title: string; description?: string; slide_deck_id?: string }
+): Promise<AwdioSession> {
+  return fetchAPI<AwdioSession>(`/api/v1/awdios/${awdioId}/sessions`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getAwdioSession(
+  awdioId: string,
+  sessionId: string
+): Promise<AwdioSession> {
+  return fetchAPI<AwdioSession>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}`
+  );
+}
+
+export async function deleteAwdioSession(
+  awdioId: string,
+  sessionId: string
+): Promise<void> {
+  await fetchAPI(`/api/v1/awdios/${awdioId}/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getAwdioSessionScript(
+  awdioId: string,
+  sessionId: string
+): Promise<NarrationScript> {
+  return fetchAPI<NarrationScript>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/script`
+  );
+}
+
+export async function getAwdioSessionManifest(
+  awdioId: string,
+  sessionId: string
+): Promise<SessionManifest> {
+  return fetchAPI<SessionManifest>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/manifest`
+  );
+}
+
+export async function generateAwdioSessionScript(
+  awdioId: string,
+  sessionId: string
+): Promise<NarrationScript> {
+  return fetchAPI<NarrationScript>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/script/generate`,
+    { method: "POST" }
+  );
+}
+
+export async function synthesizeAwdioSession(
+  awdioId: string,
+  sessionId: string
+): Promise<SessionManifest> {
+  return fetchAPI<SessionManifest>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/synthesize`,
+    { method: "POST" }
+  );
+}
+
+// Awdio Knowledge Bases
+export async function listAwdioKnowledgeBases(
+  awdioId: string
+): Promise<AwdioKnowledgeBase[]> {
+  return fetchAPI<AwdioKnowledgeBase[]>(
+    `/api/v1/awdios/${awdioId}/knowledge-bases`
+  );
+}
+
+export async function createAwdioKnowledgeBase(
+  awdioId: string,
+  data: { name: string; description?: string }
+): Promise<AwdioKnowledgeBase> {
+  return fetchAPI<AwdioKnowledgeBase>(
+    `/api/v1/awdios/${awdioId}/knowledge-bases`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export async function deleteAwdioKnowledgeBase(
+  awdioId: string,
+  kbId: string
+): Promise<void> {
+  await fetchAPI(`/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}`, {
+    method: "DELETE",
+  });
+}
+
+// Awdio Documents
+export async function listAwdioDocuments(
+  awdioId: string,
+  kbId: string
+): Promise<AwdioDocument[]> {
+  return fetchAPI<AwdioDocument[]>(
+    `/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/documents`
+  );
+}
+
+export async function uploadAwdioDocument(
+  awdioId: string,
+  kbId: string,
+  file: File
+): Promise<AwdioDocument> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `${API_URL}/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/documents`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function deleteAwdioDocument(
+  awdioId: string,
+  kbId: string,
+  docId: string
+): Promise<void> {
+  await fetchAPI(
+    `/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/documents/${docId}`,
+    { method: "DELETE" }
+  );
 }
 
 export { API_URL };

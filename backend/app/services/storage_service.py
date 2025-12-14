@@ -81,6 +81,57 @@ class StorageService:
         content_type = f"audio/{format}"
         return await self.upload_file(audio_content, object_name, content_type)
 
+    async def upload_slide(
+        self,
+        image_content: bytes,
+        awdio_id: uuid.UUID,
+        slide_deck_id: uuid.UUID,
+        slide_id: uuid.UUID,
+        filename: str,
+    ) -> str:
+        """Upload a slide image file."""
+        suffix = Path(filename).suffix.lower()
+        object_name = f"awdios/{awdio_id}/slide-decks/{slide_deck_id}/slides/{slide_id}{suffix}"
+        content_type = self._get_image_content_type(suffix)
+        return await self.upload_file(image_content, object_name, content_type)
+
+    async def upload_slide_thumbnail(
+        self,
+        image_content: bytes,
+        awdio_id: uuid.UUID,
+        slide_deck_id: uuid.UUID,
+        slide_id: uuid.UUID,
+    ) -> str:
+        """Upload a slide thumbnail image."""
+        object_name = f"awdios/{awdio_id}/slide-decks/{slide_deck_id}/slides/{slide_id}_thumb.png"
+        return await self.upload_file(image_content, object_name, "image/png")
+
+    async def upload_awdio_audio(
+        self,
+        audio_content: bytes,
+        awdio_id: uuid.UUID,
+        session_id: uuid.UUID,
+        segment_index: int,
+        format: str = "mp3",
+    ) -> str:
+        """Upload an awdio narration segment file."""
+        object_name = f"awdios/{awdio_id}/sessions/{session_id}/segments/{segment_index:04d}.{format}"
+        content_type = f"audio/{format}"
+        return await self.upload_file(audio_content, object_name, content_type)
+
+    async def upload_awdio_document(
+        self,
+        file_content: bytes,
+        filename: str,
+        awdio_id: uuid.UUID,
+        knowledge_base_id: uuid.UUID,
+    ) -> str:
+        """Upload a document file to an awdio knowledge base."""
+        suffix = Path(filename).suffix
+        object_name = f"awdios/{awdio_id}/knowledge_bases/{knowledge_base_id}/documents/{uuid.uuid4()}{suffix}"
+        content_type = self._get_content_type(filename)
+        return await self.upload_file(file_content, object_name, content_type)
+
     async def download_file(self, object_name: str) -> bytes:
         """Download a file from storage."""
         try:
@@ -130,3 +181,15 @@ class StorageService:
             ".ogg": "audio/ogg",
         }
         return content_types.get(suffix, "application/octet-stream")
+
+    def _get_image_content_type(self, suffix: str) -> str:
+        """Get MIME type for image files."""
+        image_types = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".svg": "image/svg+xml",
+        }
+        return image_types.get(suffix, "image/png")

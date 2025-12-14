@@ -36,8 +36,10 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
   // Initialize audio element
   useEffect(() => {
     if (typeof window !== "undefined" && !audioRef.current) {
+      console.log("[AudioPlayer] Initializing audio element");
       audioRef.current = new Audio();
       audioRef.current.preload = "auto";
+      // Note: crossOrigin removed - backend CORS middleware handles this
     }
 
     return () => {
@@ -54,10 +56,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
     if (!audio) return;
 
     const handleLoadStart = () => {
+      console.log("[AudioPlayer] loadstart event, setting isLoading=true");
       setState((s) => ({ ...s, isLoading: true, error: null }));
     };
 
     const handleCanPlay = () => {
+      console.log("[AudioPlayer] canplay event, setting isLoading=false, duration:", audio.duration);
       setState((s) => ({
         ...s,
         isLoading: false,
@@ -76,8 +80,32 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
       optionsRef.current.onEnded?.();
     };
 
-    const handleError = () => {
-      const errorMsg = "Audio playback error";
+    const handleError = (e: Event) => {
+      const audioEl = e.target as HTMLAudioElement;
+      // Ignore errors if src is empty or is the current page URL (no src set yet)
+      if (!audioEl?.src || audioEl.src === window.location.href || !audioEl.src.includes('/api/v1/audio/')) {
+        console.log("[AudioPlayer] Ignoring error for invalid/empty src:", audioEl?.src);
+        return;
+      }
+      const mediaError = audioEl?.error;
+      let errorMsg = "Audio playback error";
+      if (mediaError) {
+        switch (mediaError.code) {
+          case MediaError.MEDIA_ERR_ABORTED:
+            errorMsg = "Audio playback aborted";
+            break;
+          case MediaError.MEDIA_ERR_NETWORK:
+            errorMsg = "Network error while loading audio";
+            break;
+          case MediaError.MEDIA_ERR_DECODE:
+            errorMsg = "Audio decode error";
+            break;
+          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMsg = `Audio format not supported (src: ${audioEl?.src?.substring(0, 100)}...)`;
+            break;
+        }
+      }
+      console.error("Audio error:", errorMsg, mediaError, audioEl?.src);
       setState((s) => ({ ...s, error: errorMsg, isPlaying: false, isLoading: false }));
       optionsRef.current.onError?.(errorMsg);
     };
@@ -90,6 +118,30 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
       setState((s) => ({ ...s, isPlaying: false }));
     };
 
+    const handleProgress = () => {
+      console.log("[AudioPlayer] progress event, buffered:", audio.buffered.length > 0 ? `${audio.buffered.start(0)}-${audio.buffered.end(0)}` : "none");
+    };
+
+    const handleLoadedData = () => {
+      console.log("[AudioPlayer] loadeddata event");
+    };
+
+    const handleLoadedMetadata = () => {
+      console.log("[AudioPlayer] loadedmetadata event, duration:", audio.duration);
+    };
+
+    const handleStalled = () => {
+      console.log("[AudioPlayer] stalled event - data loading stalled");
+    };
+
+    const handleSuspend = () => {
+      console.log("[AudioPlayer] suspend event - loading suspended");
+    };
+
+    const handleWaiting = () => {
+      console.log("[AudioPlayer] waiting event - waiting for data");
+    };
+
     audio.addEventListener("loadstart", handleLoadStart);
     audio.addEventListener("canplay", handleCanPlay);
     audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -97,6 +149,12 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
     audio.addEventListener("error", handleError);
     audio.addEventListener("play", handlePlay);
     audio.addEventListener("pause", handlePause);
+    audio.addEventListener("progress", handleProgress);
+    audio.addEventListener("loadeddata", handleLoadedData);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("stalled", handleStalled);
+    audio.addEventListener("suspend", handleSuspend);
+    audio.addEventListener("waiting", handleWaiting);
 
     return () => {
       audio.removeEventListener("loadstart", handleLoadStart);
@@ -106,13 +164,46 @@ export function useAudioPlayer(options: UseAudioPlayerOptions = {}) {
       audio.removeEventListener("error", handleError);
       audio.removeEventListener("play", handlePlay);
       audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("progress", handleProgress);
+      audio.removeEventListener("loadeddata", handleLoadedData);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("stalled", handleStalled);
+      audio.removeEventListener("suspend", handleSuspend);
+      audio.removeEventListener("waiting", handleWaiting);
     };
   }, []);
 
-  const load = useCallback((url: string) => {
-    if (!audioRef.current) return;
+  const load = useCallback(async (url: string) => {
+    console.log("[AudioPlayer] load called with url:", url);
+
+    // Test if URL is accessible via fetch
+    try {
+      console.log("[AudioPlayer] Testing URL accessibility via fetch...");
+      const response = await fetch(url, { method: 'HEAD' });
+      console.log("[AudioPlayer] Fetch response:", response.status, response.headers.get('content-type'), response.headers.get('content-length'));
+    } catch (e) {
+      console.error("[AudioPlayer] Fetch test failed:", e);
+    }
+
+    if (!audioRef.current) {
+      console.warn("[AudioPlayer] audioRef.current is null, creating new Audio element");
+      audioRef.current = new Audio();
+      audioRef.current.preload = "auto";
+    }
+    console.log("[AudioPlayer] Setting src to:", url);
+    console.log("[AudioPlayer] Audio element state before load:", {
+      src: audioRef.current.src,
+      readyState: audioRef.current.readyState,
+      networkState: audioRef.current.networkState,
+      error: audioRef.current.error,
+    });
     audioRef.current.src = url;
     audioRef.current.load();
+    console.log("[AudioPlayer] Audio element state after load:", {
+      src: audioRef.current.src,
+      readyState: audioRef.current.readyState,
+      networkState: audioRef.current.networkState,
+    });
   }, []);
 
   const play = useCallback(async () => {
