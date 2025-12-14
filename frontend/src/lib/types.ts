@@ -67,10 +67,14 @@ export interface SpeakerConfig {
 export interface Voice {
   id: string;
   name: string;
-  neuphonic_voice_id: string;
+  tts_provider: "neuphonic" | "elevenlabs";
+  provider_voice_id: string | null;
+  neuphonic_voice_id: string | null;  // Legacy field
   is_cloned: boolean;
   voice_metadata: Record<string, unknown>;
 }
+
+export type TTSProvider = "neuphonic" | "elevenlabs";
 
 export interface VoiceAssignment {
   id: string;
@@ -247,4 +251,41 @@ export interface AwdioDocument {
   processed: boolean;
   created_at: string;
   chunk_count: number;
+}
+
+// KB Image types
+export interface KBImage {
+  id: string;
+  knowledge_base_id: string;
+  filename: string;
+  image_path: string;
+  thumbnail_path: string | null;
+  title: string | null;
+  description: string | null;
+  associated_text: string;
+  image_metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export type PresenterKBImage = KBImage;
+
+export type AwdioKBImage = KBImage;
+
+// Presenter Knowledge Base
+export interface PresenterKnowledgeBase {
+  id: string;
+  presenter_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+}
+
+export interface PresenterDocument {
+  id: string;
+  knowledge_base_id: string;
+  filename: string;
+  file_path: string;
+  file_type: string | null;
+  processed: boolean;
+  created_at: string;
 }

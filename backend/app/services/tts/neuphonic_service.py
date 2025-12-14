@@ -1,3 +1,5 @@
+"""Neuphonic TTS provider implementation."""
+
 import asyncio
 import io
 import wave
@@ -6,15 +8,21 @@ from typing import AsyncGenerator
 from pyneuphonic import Neuphonic, TTSConfig
 
 from app.config import settings
+from app.services.tts.base import TTSProvider, VoiceInfo
 
 
-class NeuphonicsService:
+class NeuphonicsService(TTSProvider):
     """Neuphonic TTS API wrapper for audio synthesis."""
 
     def __init__(self):
         self.client = Neuphonic(api_key=settings.neuphonic_api_key)
+        self._sample_rate = 22050
 
-    async def list_voices(self) -> list[dict]:
+    @property
+    def provider_name(self) -> str:
+        return "neuphonic"
+
+    async def list_voices(self) -> list[VoiceInfo]:
         """Get available voices from Neuphonic."""
         try:
             response = self.client.voices.list()
@@ -41,44 +49,35 @@ class NeuphonicsService:
             for voice in voice_list:
                 # Handle both object and dict formats
                 if isinstance(voice, dict):
-                    voices.append({
-                        "id": voice.get("id", ""),
-                        "name": voice.get("name", ""),
-                        "tags": voice.get("tags", []),
-                        "is_cloned": voice.get("is_cloned", False),
-                    })
+                    voices.append(
+                        VoiceInfo(
+                            provider_voice_id=voice.get("id", ""),
+                            name=voice.get("name", ""),
+                            provider=self.provider_name,
+                            is_cloned=voice.get("is_cloned", False),
+                            labels={"tags": voice.get("tags", [])},
+                        )
+                    )
                 else:
-                    voices.append({
-                        "id": getattr(voice, "id", ""),
-                        "name": getattr(voice, "name", ""),
-                        "tags": getattr(voice, "tags", []),
-                        "is_cloned": getattr(voice, "is_cloned", False),
-                    })
+                    voices.append(
+                        VoiceInfo(
+                            provider_voice_id=getattr(voice, "id", ""),
+                            name=getattr(voice, "name", ""),
+                            provider=self.provider_name,
+                            is_cloned=getattr(voice, "is_cloned", False),
+                            labels={"tags": getattr(voice, "tags", [])},
+                        )
+                    )
             return voices
         except Exception as e:
             raise RuntimeError(f"Failed to list voices: {e}")
-
-    def _normalize_text(self, text: str) -> str:
-        """Normalize text for TTS - replace fancy quotes and other problematic characters."""
-        # Replace fancy quotes with ASCII equivalents
-        replacements = {
-            '\u2018': "'",  # Left single quotation mark
-            '\u2019': "'",  # Right single quotation mark
-            '\u201C': '"',  # Left double quotation mark
-            '\u201D': '"',  # Right double quotation mark
-            '\u2013': '-',  # En dash
-            '\u2014': '-',  # Em dash
-            '\u2026': '...',  # Ellipsis
-        }
-        for old, new in replacements.items():
-            text = text.replace(old, new)
-        return text
 
     async def synthesize(
         self,
         text: str,
         voice_id: str,
         speed: float = 1.0,
+        **kwargs,
     ) -> bytes:
         """
         Synthesize text to audio using Neuphonic.
@@ -92,10 +91,10 @@ class NeuphonicsService:
             Audio bytes in WAV format
         """
         # Normalize text to avoid API issues with fancy unicode characters
-        text = self._normalize_text(text)
+        text = self.normalize_text(text)
 
-        print(f"[TTS] Synthesizing text ({len(text)} chars) with voice_id: {voice_id}")
-        print(f"[TTS] Text preview: {text[:100]}...")
+        print(f"[Neuphonic TTS] Synthesizing text ({len(text)} chars) with voice_id: {voice_id}")
+        print(f"[Neuphonic TTS] Text preview: {text[:100]}...")
         try:
             # Use the SSE client for synchronous synthesis
             sse = self.client.tts.SSEClient()
@@ -103,13 +102,10 @@ class NeuphonicsService:
             # Collect audio chunks
             audio_chunks = []
 
-            # Neuphonic default: pcm_linear at 22050 Hz
-            sample_rate = 22050
-
             config = TTSConfig(
                 voice=voice_id,
                 speed=speed,
-                sampling_rate=sample_rate,
+                sampling_rate=self._sample_rate,
             )
 
             response = sse.send(text, tts_config=config)
@@ -125,7 +121,7 @@ class NeuphonicsService:
             pcm_audio = b"".join(audio_chunks)
 
             # Wrap PCM data with WAV headers
-            wav_audio = self._pcm_to_wav(pcm_audio, sample_rate)
+            wav_audio = self._pcm_to_wav(pcm_audio, self._sample_rate)
             return wav_audio
 
         except Exception as e:
@@ -155,6 +151,7 @@ class NeuphonicsService:
         text: str,
         voice_id: str,
         speed: float = 1.0,
+        **kwargs,
     ) -> AsyncGenerator[bytes, None]:
         """
         Stream synthesized audio chunks.
@@ -168,7 +165,7 @@ class NeuphonicsService:
             Audio chunks as bytes
         """
         # Normalize text to avoid API issues with fancy unicode characters
-        text = self._normalize_text(text)
+        text = self.normalize_text(text)
 
         try:
             sse = self.client.tts.SSEClient()
@@ -188,10 +185,10 @@ class NeuphonicsService:
         except Exception as e:
             raise RuntimeError(f"Failed to stream audio: {e}")
 
-    async def get_voice_info(self, voice_id: str) -> dict | None:
+    async def get_voice_info(self, voice_id: str) -> VoiceInfo | None:
         """Get information about a specific voice."""
         voices = await self.list_voices()
         for voice in voices:
-            if voice["id"] == voice_id:
+            if voice.provider_voice_id == voice_id:
                 return voice
         return None

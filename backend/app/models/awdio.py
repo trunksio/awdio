@@ -328,6 +328,9 @@ class AwdioKnowledgeBase(Base):
     documents: Mapped[list["AwdioDocument"]] = relationship(
         "AwdioDocument", back_populates="knowledge_base", cascade="all, delete-orphan"
     )
+    images: Mapped[list["AwdioKBImage"]] = relationship(
+        "AwdioKBImage", back_populates="knowledge_base", cascade="all, delete-orphan"
+    )
 
 
 class AwdioDocument(Base):
@@ -381,6 +384,46 @@ class AwdioChunk(Base):
     # Relationships
     document: Mapped["AwdioDocument"] = relationship(
         "AwdioDocument", back_populates="chunks"
+    )
+
+
+class AwdioKBImage(Base):
+    """Image in an awdio's knowledge base with associated text for semantic search."""
+
+    __tablename__ = "awdio_kb_images"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("awdio_knowledge_bases.id", ondelete="CASCADE"),
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    image_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    # MinIO path to full-resolution image
+    thumbnail_path: Mapped[str | None] = mapped_column(String(500))
+    # MinIO path to thumbnail
+
+    title: Mapped[str | None] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text)
+    associated_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Text content for embedding generation (user-provided context)
+
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536))
+    # Vector embedding for semantic search during Q&A
+
+    image_metadata: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # Relationships
+    knowledge_base: Mapped["AwdioKnowledgeBase"] = relationship(
+        "AwdioKnowledgeBase", back_populates="images"
     )
 
 

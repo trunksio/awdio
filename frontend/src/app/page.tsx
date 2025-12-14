@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-8">
@@ -8,19 +10,25 @@ export default function Home() {
         <p className="text-xl text-gray-400 mb-8">
           Voice-driven podcasts you can interrupt, question, and explore.
         </p>
-        <div className="flex gap-4 justify-center">
-          <a
+        <div className="flex gap-4 justify-center flex-wrap">
+          <Link
             href="/admin"
             className="px-6 py-3 bg-white text-black font-medium rounded-lg hover:bg-gray-200 transition-colors"
           >
             Admin Panel
-          </a>
-          <a
+          </Link>
+          <Link
+            href="/awdio"
+            className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Watch Presentations
+          </Link>
+          <Link
             href="/listen"
             className="px-6 py-3 border border-gray-600 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors"
           >
-            Listen
-          </a>
+            Listen to Podcasts
+          </Link>
         </div>
       </div>
 

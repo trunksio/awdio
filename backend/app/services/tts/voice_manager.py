@@ -1,46 +1,60 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.voice import PodcastVoice, Voice
-from app.services.tts.neuphonic_service import NeuphonicsService
+from app.services.tts.factory import TTSFactory
 
 
 class VoiceManager:
-    """Manages voices for podcasts."""
+    """Manages voices for podcasts with multi-provider support."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
-        self.tts = NeuphonicsService()
 
-    async def sync_neuphonic_voices(self) -> list[Voice]:
+    async def sync_voices(self, provider: str = "neuphonic") -> list[Voice]:
         """
-        Sync available Neuphonic voices to the local database.
-        Returns list of synced voices.
+        Sync available voices from a TTS provider to the local database.
+
+        Args:
+            provider: TTS provider name ("neuphonic" or "elevenlabs")
+
+        Returns:
+            List of synced Voice records
         """
-        neuphonic_voices = await self.tts.list_voices()
+        tts = TTSFactory.get_provider(provider)
+        provider_voices = await tts.list_voices()
         synced = []
 
-        for nv in neuphonic_voices:
-            # Check if voice already exists
+        for pv in provider_voices:
+            # Check if voice already exists by provider + provider_voice_id
             result = await self.session.execute(
-                select(Voice).where(Voice.neuphonic_voice_id == nv["id"])
+                select(Voice).where(
+                    and_(
+                        Voice.tts_provider == provider,
+                        Voice.provider_voice_id == pv.provider_voice_id,
+                    )
+                )
             )
             existing = result.scalar_one_or_none()
 
             if existing:
-                # Update existing
-                existing.name = nv["name"]
-                existing.voice_metadata = {"tags": nv.get("tags", [])}
+                # Update existing voice
+                existing.name = pv.name
+                existing.is_cloned = pv.is_cloned
+                existing.voice_metadata = pv.labels or {}
                 synced.append(existing)
             else:
-                # Create new
+                # Create new voice
                 voice = Voice(
-                    name=nv["name"],
-                    neuphonic_voice_id=nv["id"],
-                    is_cloned=nv.get("is_cloned", False),
-                    voice_metadata={"tags": nv.get("tags", [])},
+                    name=pv.name,
+                    tts_provider=provider,
+                    provider_voice_id=pv.provider_voice_id,
+                    # Also set legacy field for neuphonic backward compatibility
+                    neuphonic_voice_id=pv.provider_voice_id if provider == "neuphonic" else None,
+                    is_cloned=pv.is_cloned,
+                    voice_metadata=pv.labels or {},
                 )
                 self.session.add(voice)
                 synced.append(voice)
@@ -48,11 +62,33 @@ class VoiceManager:
         await self.session.flush()
         return synced
 
-    async def list_voices(self) -> list[Voice]:
-        """List all voices in the database."""
-        result = await self.session.execute(
-            select(Voice).order_by(Voice.name)
-        )
+    async def sync_neuphonic_voices(self) -> list[Voice]:
+        """
+        Sync available Neuphonic voices to the local database.
+        Returns list of synced voices.
+
+        Deprecated: Use sync_voices("neuphonic") instead.
+        """
+        return await self.sync_voices("neuphonic")
+
+    async def sync_elevenlabs_voices(self) -> list[Voice]:
+        """
+        Sync available ElevenLabs voices to the local database.
+        Returns list of synced voices.
+        """
+        return await self.sync_voices("elevenlabs")
+
+    async def list_voices(self, provider: str | None = None) -> list[Voice]:
+        """
+        List voices in the database.
+
+        Args:
+            provider: Optional provider filter ("neuphonic" or "elevenlabs")
+        """
+        query = select(Voice).order_by(Voice.tts_provider, Voice.name)
+        if provider:
+            query = query.where(Voice.tts_provider == provider)
+        result = await self.session.execute(query)
         return list(result.scalars().all())
 
     async def get_voice(self, voice_id: uuid.UUID) -> Voice | None:
@@ -62,8 +98,26 @@ class VoiceManager:
         )
         return result.scalar_one_or_none()
 
+    async def get_voice_by_provider_id(
+        self, provider: str, provider_voice_id: str
+    ) -> Voice | None:
+        """Get a voice by provider and provider voice ID."""
+        result = await self.session.execute(
+            select(Voice).where(
+                and_(
+                    Voice.tts_provider == provider,
+                    Voice.provider_voice_id == provider_voice_id,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_voice_by_neuphonic_id(self, neuphonic_id: str) -> Voice | None:
-        """Get a voice by Neuphonic ID."""
+        """
+        Get a voice by Neuphonic ID.
+
+        Deprecated: Use get_voice_by_provider_id("neuphonic", voice_id) instead.
+        """
         result = await self.session.execute(
             select(Voice).where(Voice.neuphonic_voice_id == neuphonic_id)
         )

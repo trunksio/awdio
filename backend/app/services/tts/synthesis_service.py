@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.models.podcast import Episode, EpisodeManifest, Script, ScriptSegment
 from app.models.voice import Voice
 from app.services.storage_service import StorageService
-from app.services.tts.neuphonic_service import NeuphonicsService
+from app.services.tts.factory import TTSFactory
 from app.services.tts.voice_manager import VoiceManager
 
 
@@ -19,7 +19,6 @@ class SynthesisService:
 
     def __init__(self, session: AsyncSession):
         self.session = session
-        self.tts = NeuphonicsService()
         self.storage = StorageService()
         self.voice_manager = VoiceManager(session)
 
@@ -184,15 +183,18 @@ class SynthesisService:
         speaker_voices: dict[str, Voice],
         speed: float,
     ) -> bytes:
-        """Synthesize a single segment's audio."""
+        """Synthesize a single segment's audio using the appropriate TTS provider."""
         voice = speaker_voices.get(segment.speaker_name)
 
         if not voice:
             raise ValueError(f"No voice found for speaker: {segment.speaker_name}")
 
-        audio_data = await self.tts.synthesize(
+        # Get the correct TTS provider for this voice
+        tts = TTSFactory.get_provider(voice.tts_provider)
+
+        audio_data = await tts.synthesize(
             text=segment.content,
-            voice_id=voice.neuphonic_voice_id,
+            voice_id=voice.effective_voice_id,
             speed=speed,
         )
 
@@ -246,9 +248,12 @@ class SynthesisService:
         if not voice:
             raise ValueError(f"Voice {voice_id} not found")
 
-        return await self.tts.synthesize(
+        # Get the correct TTS provider for this voice
+        tts = TTSFactory.get_provider(voice.tts_provider)
+
+        return await tts.synthesize(
             text=text,
-            voice_id=voice.neuphonic_voice_id,
+            voice_id=voice.effective_voice_id,
             speed=speed,
         )
 

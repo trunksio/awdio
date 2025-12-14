@@ -44,6 +44,7 @@ services:
       MINIO_BUCKET: awdio
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       NEUPHONIC_API_KEY: ${NEUPHONIC_API_KEY}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
     volumes:
       - ./backend:/app
     ports:

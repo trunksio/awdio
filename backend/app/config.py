@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Neuphonic
     neuphonic_api_key: str = ""
 
+    # ElevenLabs
+    elevenlabs_api_key: str = ""
+
     # App
     debug: bool = True
     cors_origins: list[str] = ["http://localhost:3000"]

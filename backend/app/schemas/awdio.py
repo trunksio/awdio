@@ -196,3 +196,18 @@ class AwdioDocumentResponse(BaseModel):
     processed: bool
     created_at: datetime
     chunk_count: int = 0
+
+
+class AwdioKBImageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    knowledge_base_id: uuid.UUID
+    filename: str
+    image_path: str
+    thumbnail_path: str | None
+    title: str | None
+    description: str | None
+    associated_text: str
+    image_metadata: dict
+    created_at: datetime

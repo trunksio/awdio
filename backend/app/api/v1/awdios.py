@@ -2,7 +2,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,7 @@ from app.models.awdio import (
     Awdio,
     AwdioChunk,
     AwdioDocument,
+    AwdioKBImage,
     AwdioKnowledgeBase,
     AwdioSession,
     NarrationScript,
@@ -23,6 +24,7 @@ from app.models.awdio import (
 from app.schemas.awdio import (
     AwdioCreate,
     AwdioDocumentResponse,
+    AwdioKBImageResponse,
     AwdioKnowledgeBaseCreate,
     AwdioKnowledgeBaseResponse,
     AwdioResponse,
@@ -37,6 +39,7 @@ from app.schemas.awdio import (
     SlideResponse,
     SlideUpdate,
 )
+from app.services.kb_image_processor import KBImageProcessor
 from app.services.storage_service import StorageService
 
 router = APIRouter(prefix="/awdios", tags=["awdios"])
@@ -1027,8 +1030,8 @@ async def synthesize_session(
     )
     awdio = awdio_result.scalar_one()
 
-    # Get voice ID from presenter or use default
-    voice_id = None
+    # Get voice from presenter
+    voice = None
     if awdio.presenter and awdio.presenter.voice_id:
         from app.models.voice import Voice
 
@@ -1036,17 +1039,28 @@ async def synthesize_session(
             select(Voice).where(Voice.id == awdio.presenter.voice_id)
         )
         voice = voice_result.scalar_one_or_none()
-        if voice:
-            voice_id = voice.neuphonic_voice_id
 
-    # If no voice configured, use a default
+    # If no voice configured, get a default voice
+    if not voice:
+        from app.models.voice import Voice
+
+        # Try to get any available voice
+        default_voice_result = await db.execute(
+            select(Voice).limit(1)
+        )
+        voice = default_voice_result.scalar_one_or_none()
+        if not voice:
+            raise HTTPException(status_code=400, detail="No voices available. Please sync voices first.")
+
+    # Get voice ID and TTS provider
+    voice_id = voice.effective_voice_id
     if not voice_id:
-        voice_id = "e564ba7e-aa8d-46a2-96a8-8dffedade48f"  # Default voice
+        raise HTTPException(status_code=400, detail=f"Voice '{voice.name}' has no provider voice ID configured.")
 
-    # Synthesize each segment
-    from app.services.tts import NeuphonicsService
+    # Synthesize each segment using the appropriate TTS provider
+    from app.services.tts import TTSFactory
 
-    tts = NeuphonicsService()
+    tts = TTSFactory.get_provider(voice.tts_provider)
     storage = StorageService()
 
     # Update script status
@@ -1073,7 +1087,7 @@ async def synthesize_session(
                 speed=1.0,
             )
 
-            # Upload to storage (NeuphonicsService returns WAV)
+            # Upload to storage (TTS providers return WAV)
             audio_path = await storage.upload_awdio_audio(
                 audio_content,
                 awdio_id,
@@ -1394,3 +1408,99 @@ async def delete_awdio_document(
 
     await db.delete(doc)
     await db.commit()
+
+
+# ============================================
+# KB Images (Awdio-specific)
+# ============================================
+
+
+@router.get(
+    "/{awdio_id}/knowledge-bases/{kb_id}/images",
+    response_model=list[AwdioKBImageResponse],
+)
+async def list_awdio_kb_images(
+    awdio_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[AwdioKBImage]:
+    """List images in an awdio knowledge base."""
+    processor = KBImageProcessor()
+    return await processor.list_awdio_images(db, kb_id)
+
+
+@router.post(
+    "/{awdio_id}/knowledge-bases/{kb_id}/images",
+    response_model=AwdioKBImageResponse,
+    status_code=201,
+)
+async def upload_awdio_kb_image(
+    awdio_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    file: Annotated[UploadFile, File(...)],
+    title: str | None = Form(None),
+    description: str | None = Form(None),
+    associated_text: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+) -> AwdioKBImage:
+    """
+    Upload an image to an awdio's knowledge base.
+
+    The associated_text is used for semantic search during Q&A.
+    """
+    # Verify knowledge base exists and belongs to awdio
+    result = await db.execute(
+        select(AwdioKnowledgeBase).where(
+            AwdioKnowledgeBase.id == kb_id,
+            AwdioKnowledgeBase.awdio_id == awdio_id,
+        )
+    )
+    kb = result.scalar_one_or_none()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    if not associated_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="associated_text is required for semantic search",
+        )
+
+    processor = KBImageProcessor()
+    try:
+        return await processor.upload_awdio_image(
+            db=db,
+            knowledge_base_id=kb_id,
+            file=file,
+            title=title,
+            description=description,
+            associated_text=associated_text,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/{awdio_id}/knowledge-bases/{kb_id}/images/{image_id}", status_code=204
+)
+async def delete_awdio_kb_image(
+    awdio_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    image_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete an image from an awdio's knowledge base."""
+    # Verify ownership
+    result = await db.execute(
+        select(AwdioKBImage)
+        .join(AwdioKnowledgeBase)
+        .where(
+            AwdioKBImage.id == image_id,
+            AwdioKBImage.knowledge_base_id == kb_id,
+            AwdioKnowledgeBase.awdio_id == awdio_id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    processor = KBImageProcessor()
+    await processor.delete_awdio_image(db, image_id)

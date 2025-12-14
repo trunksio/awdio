@@ -24,34 +24,27 @@ export function SlideViewer({
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const lastSlideUrlRef = useRef<string | null>(null);
 
-  // Log for debugging
+  // Reset states when slide URL actually changes (by value)
   useEffect(() => {
-    console.log("[SlideViewer] Props:", { slideUrl, slideIndex, totalSlides, isLoading });
-  }, [slideUrl, slideIndex, totalSlides, isLoading]);
+    if (slideUrl !== lastSlideUrlRef.current) {
+      lastSlideUrlRef.current = slideUrl;
+      setImageError(false);
+      setImageLoaded(false);
 
-  // Reset states when slide changes
-  useEffect(() => {
-    console.log("[SlideViewer] Slide URL changed, resetting state:", slideUrl);
-    setImageError(false);
-    setImageLoaded(false);
-  }, [slideUrl]);
-
-  // Handle cached images - check if already complete after mount
-  useEffect(() => {
-    if (imgRef.current?.complete && imgRef.current?.naturalHeight !== 0) {
-      console.log("[SlideViewer] Image already loaded (cached)");
-      setImageLoaded(true);
+      // Check if image is already cached
+      if (imgRef.current?.complete && imgRef.current?.naturalHeight !== 0 && imgRef.current?.src === slideUrl) {
+        setImageLoaded(true);
+      }
     }
   }, [slideUrl]);
 
   const handleImageLoad = useCallback(() => {
-    console.log("[SlideViewer] Image onLoad fired");
     setImageLoaded(true);
   }, []);
 
-  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    console.error("[SlideViewer] Image onError fired:", (e.target as HTMLImageElement)?.src);
+  const handleImageError = useCallback(() => {
     setImageError(true);
   }, []);
 

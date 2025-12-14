@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAwdio, getAwdioSession, getAwdioSessionManifest } from "@/lib/api";
 import type { Awdio, AwdioSession, SessionManifest } from "@/lib/types";
@@ -12,7 +12,6 @@ const WS_URL = API_URL.replace(/^http/, "ws");
 
 export default function WatchPage() {
   const params = useParams();
-  const router = useRouter();
   const awdioId = params.id as string;
   const sessionId = params.sessionId as string;
 
@@ -23,6 +22,8 @@ export default function WatchPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadData() {
       try {
         setLoading(true);
@@ -31,18 +32,28 @@ export default function WatchPage() {
           getAwdioSession(awdioId, sessionId),
           getAwdioSessionManifest(awdioId, sessionId),
         ]);
-        setAwdio(awdioData);
-        setSession(sessionData);
-        setManifest(manifestData);
-        setError(null);
+
+        if (!cancelled) {
+          setAwdio(awdioData);
+          setSession(sessionData);
+          setManifest(manifestData);
+          setError(null);
+          setLoading(false);
+        }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load session");
-      } finally {
-        setLoading(false);
+        if (!cancelled) {
+          console.error("Failed to load session data:", e);
+          setError(e instanceof Error ? e.message : "Failed to load session");
+          setLoading(false);
+        }
       }
     }
 
     loadData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [awdioId, sessionId]);
 
   if (loading) {

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import type { SessionManifest, SessionManifestSegment } from "@/lib/types";
+import type { SessionManifest } from "@/lib/types";
 import { useSlideSequencer } from "@/hooks/useSlideSequencer";
 import { SlideViewer, SlideNavigator } from "./SlideViewer";
-import { AwdioVoiceInterrupt, type SlideSelectEvent } from "./AwdioVoiceInterrupt";
+import { AwdioVoiceInterrupt, type SlideSelectEvent, type VisualSelectEvent } from "./AwdioVoiceInterrupt";
 
 interface AwdioPlayerProps {
   manifest: SessionManifest;
@@ -39,9 +39,11 @@ export function AwdioPlayer({
 }: AwdioPlayerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [controlsTimeout, setControlsTimeout] = useState<NodeJS.Timeout | null>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isInterrupted, setIsInterrupted] = useState(false);
   const [qaSlideUrl, setQaSlideUrl] = useState<string | null>(null);
+  const [qaVisualType, setQaVisualType] = useState<"slide" | "kb_image" | null>(null);
+  const [qaVisualSource, setQaVisualSource] = useState<"deck" | "presenter_kb" | "awdio_kb" | null>(null);
   const wasPlayingRef = useRef(false);
 
   const {
@@ -111,27 +113,27 @@ export function AwdioPlayer({
   // Auto-hide controls
   const handleMouseMove = useCallback(() => {
     setShowControls(true);
-    if (controlsTimeout) {
-      clearTimeout(controlsTimeout);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = null;
     }
     if (state.isPlaying) {
-      const timeout = setTimeout(() => {
+      controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false);
       }, 3000);
-      setControlsTimeout(timeout);
     }
-  }, [state.isPlaying, controlsTimeout]);
+  }, [state.isPlaying]);
 
   // Show controls when paused
   useEffect(() => {
     if (!state.isPlaying) {
       setShowControls(true);
-      if (controlsTimeout) {
-        clearTimeout(controlsTimeout);
-        setControlsTimeout(null);
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = null;
       }
     }
-  }, [state.isPlaying, controlsTimeout]);
+  }, [state.isPlaying]);
 
   // Keyboard controls
   useEffect(() => {
@@ -206,50 +208,61 @@ export function AwdioPlayer({
     seekToTime(percent * state.totalDuration);
   };
 
-  // Q&A interrupt handlers
+  // Q&A interrupt handlers - use ref to avoid recreating callback on every isPlaying change
+  const isPlayingRef = useRef(state.isPlaying);
+  isPlayingRef.current = state.isPlaying;
+
   const handleInterruptStart = useCallback(() => {
-    wasPlayingRef.current = state.isPlaying;
-    if (state.isPlaying) {
+    wasPlayingRef.current = isPlayingRef.current;
+    if (isPlayingRef.current) {
       pause();
     }
     setIsInterrupted(true);
     setShowControls(true);
-  }, [state.isPlaying, pause]);
+  }, [pause]);
 
   const handleInterruptEnd = useCallback(() => {
     setIsInterrupted(false);
     setQaSlideUrl(null);
+    setQaVisualType(null);
+    setQaVisualSource(null);
     if (wasPlayingRef.current) {
       play();
     }
   }, [play]);
 
   const handleSlideSelect = useCallback((event: SlideSelectEvent) => {
-    // Show the selected slide during Q&A
+    // Show the selected slide during Q&A (legacy handler)
     // slidePath is stored as "bucket/object/path" (e.g., "awdio/awdios/{id}/slides/xxx.png")
     const url = `${slideBaseUrl}/api/v1/audio/${event.slidePath}`;
     setQaSlideUrl(url);
+    setQaVisualType("slide");
+    setQaVisualSource("deck");
   }, [slideBaseUrl]);
 
   const handleSlideClear = useCallback((returnToSlideIndex: number) => {
     setQaSlideUrl(null);
+    setQaVisualType(null);
+    setQaVisualSource(null);
+  }, []);
+
+  const handleVisualSelect = useCallback((event: VisualSelectEvent) => {
+    // Show the selected visual (slide or KB image) during Q&A
+    // visualPath is stored as "bucket/object/path"
+    const url = `${slideBaseUrl}/api/v1/audio/${event.visualPath}`;
+    setQaSlideUrl(url);
+    setQaVisualType(event.visualType);
+    setQaVisualSource(event.source);
+  }, [slideBaseUrl]);
+
+  const handleVisualClear = useCallback((returnToSlideIndex: number) => {
+    setQaSlideUrl(null);
+    setQaVisualType(null);
+    setQaVisualSource(null);
   }, []);
 
   const currentSlideUrl = getCurrentSlideUrl();
   const displaySlideUrl = qaSlideUrl || currentSlideUrl;
-
-  // Debug logging
-  useEffect(() => {
-    console.log("[AwdioPlayer] State:", {
-      currentSegmentIndex: state.currentSegmentIndex,
-      currentSlideIndex: state.currentSlideIndex,
-      isLoading: state.isLoading,
-      currentSlideUrl,
-      displaySlideUrl,
-      segmentCount: segments.length,
-      currentSegment: currentSegment ? { index: currentSegment.index, slide_path: currentSegment.slide_path } : null,
-    });
-  }, [state.currentSegmentIndex, state.currentSlideIndex, state.isLoading, currentSlideUrl, displaySlideUrl, segments.length, currentSegment]);
 
   return (
     <div
@@ -269,7 +282,11 @@ export function AwdioPlayer({
       {/* Q&A Indicator */}
       {isInterrupted && qaSlideUrl && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 px-4 py-2 bg-blue-500/80 backdrop-blur-sm rounded-lg text-white text-sm">
-          Showing related slide
+          {qaVisualType === "kb_image"
+            ? qaVisualSource === "presenter_kb"
+              ? "Showing presenter reference image"
+              : "Showing related reference image"
+            : "Showing related slide"}
         </div>
       )}
 
@@ -447,6 +464,8 @@ export function AwdioPlayer({
             onInterruptEnd={handleInterruptEnd}
             onSlideSelect={handleSlideSelect}
             onSlideClear={handleSlideClear}
+            onVisualSelect={handleVisualSelect}
+            onVisualClear={handleVisualClear}
             disabled={isInterrupted}
           />
         </div>

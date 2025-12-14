@@ -2,19 +2,21 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { listVoices, syncVoices } from "@/lib/api";
-import type { Voice } from "@/lib/types";
+import { listVoices, syncNeuphonicsVoices, syncElevenLabsVoices } from "@/lib/api";
+import type { Voice, TTSProvider } from "@/lib/types";
 
 export default function VoicesPage() {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  const [syncingNeuphonic, setSyncingNeuphonic] = useState(false);
+  const [syncingElevenLabs, setSyncingElevenLabs] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerFilter, setProviderFilter] = useState<TTSProvider | "all">("all");
 
   async function loadVoices() {
     try {
       setLoading(true);
-      const data = await listVoices();
+      const data = await listVoices(providerFilter === "all" ? undefined : providerFilter);
       setVoices(data);
       setError(null);
     } catch (e) {
@@ -26,18 +28,31 @@ export default function VoicesPage() {
 
   useEffect(() => {
     loadVoices();
-  }, []);
+  }, [providerFilter]);
 
-  async function handleSync() {
+  async function handleSyncNeuphonic() {
     try {
-      setSyncing(true);
+      setSyncingNeuphonic(true);
       setError(null);
-      const data = await syncVoices();
-      setVoices(data);
+      await syncNeuphonicsVoices();
+      await loadVoices();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to sync voices");
+      setError(e instanceof Error ? e.message : "Failed to sync Neuphonic voices");
     } finally {
-      setSyncing(false);
+      setSyncingNeuphonic(false);
+    }
+  }
+
+  async function handleSyncElevenLabs() {
+    try {
+      setSyncingElevenLabs(true);
+      setError(null);
+      await syncElevenLabsVoices();
+      await loadVoices();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to sync ElevenLabs voices");
+    } finally {
+      setSyncingElevenLabs(false);
     }
   }
 
@@ -57,17 +72,58 @@ export default function VoicesPage() {
         </Link>
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-3xl font-bold">Voices</h1>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="px-4 py-2 bg-white text-black rounded hover:bg-gray-200 disabled:opacity-50"
-          >
-            {syncing ? "Syncing..." : "Sync from Neuphonic"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSyncNeuphonic}
+              disabled={syncingNeuphonic || syncingElevenLabs}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {syncingNeuphonic ? "Syncing..." : "Sync Neuphonic"}
+            </button>
+            <button
+              onClick={handleSyncElevenLabs}
+              disabled={syncingNeuphonic || syncingElevenLabs}
+              className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+            >
+              {syncingElevenLabs ? "Syncing..." : "Sync ElevenLabs"}
+            </button>
+          </div>
         </div>
         <p className="text-gray-400 mt-1">
-          Manage voices from Neuphonic for your podcasts
+          Manage voices from Neuphonic and ElevenLabs for your presentations
         </p>
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={() => setProviderFilter("all")}
+            className={`px-3 py-1 rounded text-sm ${
+              providerFilter === "all"
+                ? "bg-white text-black"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setProviderFilter("neuphonic")}
+            className={`px-3 py-1 rounded text-sm ${
+              providerFilter === "neuphonic"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+            }`}
+          >
+            Neuphonic
+          </button>
+          <button
+            onClick={() => setProviderFilter("elevenlabs")}
+            className={`px-3 py-1 rounded text-sm ${
+              providerFilter === "elevenlabs"
+                ? "bg-purple-600 text-white"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+            }`}
+          >
+            ElevenLabs
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -79,7 +135,7 @@ export default function VoicesPage() {
       {voices.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-8 text-center">
           <p className="text-gray-400 mb-4">
-            No voices synced yet. Click &quot;Sync from Neuphonic&quot; to fetch available voices.
+            No voices synced yet. Click &quot;Sync Neuphonic&quot; or &quot;Sync ElevenLabs&quot; to fetch available voices.
           </p>
         </div>
       ) : (
@@ -87,18 +143,33 @@ export default function VoicesPage() {
           {voices.map((voice) => (
             <div
               key={voice.id}
-              className="bg-gray-900 border border-gray-800 rounded-lg p-4"
+              className={`bg-gray-900 border rounded-lg p-4 ${
+                voice.tts_provider === "elevenlabs"
+                  ? "border-purple-800"
+                  : "border-blue-800"
+              }`}
             >
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-lg">{voice.name}</h3>
-                {voice.is_cloned && (
-                  <span className="text-xs px-2 py-1 bg-purple-900 text-purple-200 rounded">
-                    Cloned
+                <div className="flex gap-1">
+                  <span
+                    className={`text-xs px-2 py-1 rounded ${
+                      voice.tts_provider === "elevenlabs"
+                        ? "bg-purple-900 text-purple-200"
+                        : "bg-blue-900 text-blue-200"
+                    }`}
+                  >
+                    {voice.tts_provider === "elevenlabs" ? "ElevenLabs" : "Neuphonic"}
                   </span>
-                )}
+                  {voice.is_cloned && (
+                    <span className="text-xs px-2 py-1 bg-green-900 text-green-200 rounded">
+                      Clone
+                    </span>
+                  )}
+                </div>
               </div>
               <p className="text-sm text-gray-500 font-mono truncate">
-                {voice.neuphonic_voice_id}
+                {voice.provider_voice_id || voice.neuphonic_voice_id}
               </p>
               {voice.voice_metadata?.tags && Array.isArray(voice.voice_metadata.tags) ? (
                 <div className="mt-2 flex flex-wrap gap-1">

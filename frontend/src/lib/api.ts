@@ -1,6 +1,7 @@
 import type {
   Awdio,
   AwdioDocument,
+  AwdioKBImage,
   AwdioKnowledgeBase,
   AwdioSession,
   Document,
@@ -12,6 +13,7 @@ import type {
   Podcast,
   PodcastPresenter,
   Presenter,
+  PresenterKBImage,
   Script,
   SessionManifest,
   Slide,
@@ -229,12 +231,21 @@ export async function generateScript(
 }
 
 // Voices
-export async function listVoices(): Promise<Voice[]> {
-  return fetchAPI<Voice[]>("/api/v1/voices");
+export async function listVoices(provider?: string): Promise<Voice[]> {
+  const params = provider ? `?provider=${provider}` : "";
+  return fetchAPI<Voice[]>(`/api/v1/voices${params}`);
 }
 
 export async function syncVoices(): Promise<Voice[]> {
   return fetchAPI<Voice[]>("/api/v1/voices/sync", { method: "POST" });
+}
+
+export async function syncNeuphonicsVoices(): Promise<Voice[]> {
+  return fetchAPI<Voice[]>("/api/v1/voices/sync/neuphonic", { method: "POST" });
+}
+
+export async function syncElevenLabsVoices(): Promise<Voice[]> {
+  return fetchAPI<Voice[]>("/api/v1/voices/sync/elevenlabs", { method: "POST" });
 }
 
 export async function getVoice(voiceId: string): Promise<Voice> {
@@ -784,6 +795,114 @@ export async function deleteAwdioDocument(
 ): Promise<void> {
   await fetchAPI(
     `/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/documents/${docId}`,
+    { method: "DELETE" }
+  );
+}
+
+// ============================================
+// Presenter KB Images
+// ============================================
+
+export async function listPresenterKBImages(
+  presenterId: string,
+  kbId: string
+): Promise<PresenterKBImage[]> {
+  return fetchAPI<PresenterKBImage[]>(
+    `/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}/images`
+  );
+}
+
+export async function uploadPresenterKBImage(
+  presenterId: string,
+  kbId: string,
+  file: File,
+  title: string | null,
+  description: string | null,
+  associatedText: string
+): Promise<PresenterKBImage> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (title) formData.append("title", title);
+  if (description) formData.append("description", description);
+  formData.append("associated_text", associatedText);
+
+  const response = await fetch(
+    `${API_URL}/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}/images`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function deletePresenterKBImage(
+  presenterId: string,
+  kbId: string,
+  imageId: string
+): Promise<void> {
+  await fetchAPI(
+    `/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}/images/${imageId}`,
+    { method: "DELETE" }
+  );
+}
+
+// ============================================
+// Awdio KB Images
+// ============================================
+
+export async function listAwdioKBImages(
+  awdioId: string,
+  kbId: string
+): Promise<AwdioKBImage[]> {
+  return fetchAPI<AwdioKBImage[]>(
+    `/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/images`
+  );
+}
+
+export async function uploadAwdioKBImage(
+  awdioId: string,
+  kbId: string,
+  file: File,
+  title: string | null,
+  description: string | null,
+  associatedText: string
+): Promise<AwdioKBImage> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (title) formData.append("title", title);
+  if (description) formData.append("description", description);
+  formData.append("associated_text", associatedText);
+
+  const response = await fetch(
+    `${API_URL}/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/images`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function deleteAwdioKBImage(
+  awdioId: string,
+  kbId: string,
+  imageId: string
+): Promise<void> {
+  await fetchAPI(
+    `/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/images/${imageId}`,
     { method: "DELETE" }
   );
 }

@@ -36,10 +36,8 @@ export function useSlideSequencer(options: UseSlideSequencerOptions) {
   const hasLoadedFirstSegmentRef = useRef(false);
 
   const segments = useMemo(() => {
-    const segs = manifest?.manifest.segments || [];
-    console.log("[SlideSequencer] Segments loaded:", segs.length, "audioBaseUrl:", audioBaseUrl, "slideBaseUrl:", slideBaseUrl);
-    return segs;
-  }, [manifest, audioBaseUrl, slideBaseUrl]);
+    return manifest?.manifest.segments || [];
+  }, [manifest]);
 
   // Calculate segment start times
   const segmentStartTimes = useMemo(() => {
@@ -61,9 +59,7 @@ export function useSlideSequencer(options: UseSlideSequencerOptions) {
   // The audio endpoint expects /{bucket}/{path:path}
   const getAudioUrl = useCallback(
     (segment: SessionManifestSegment): string => {
-      const url = `${audioBaseUrl}/api/v1/audio/${segment.audio_path}`;
-      console.log("[SlideSequencer] Audio URL:", url, "baseUrl:", audioBaseUrl, "path:", segment.audio_path);
-      return url;
+      return `${audioBaseUrl}/api/v1/audio/${segment.audio_path}`;
     },
     [audioBaseUrl]
   );
@@ -71,9 +67,7 @@ export function useSlideSequencer(options: UseSlideSequencerOptions) {
   // Get slide image URL
   const getSlideUrl = useCallback(
     (segment: SessionManifestSegment): string => {
-      const url = `${slideBaseUrl}/api/v1/audio/${segment.slide_path}`;
-      console.log("[SlideSequencer] Slide URL:", url);
-      return url;
+      return `${slideBaseUrl}/api/v1/audio/${segment.slide_path}`;
     },
     [slideBaseUrl]
   );
@@ -99,11 +93,13 @@ export function useSlideSequencer(options: UseSlideSequencerOptions) {
     }
   }, [currentSegmentIndex, segments.length]);
 
-  // Handle time updates
+  // Handle time updates - throttle to prevent excessive re-renders
   const handleTimeUpdate = useCallback(
     (segmentTime: number) => {
       const segmentStart = segmentStartTimes[currentSegmentIndex] || 0;
-      setGlobalTime(segmentStart + segmentTime);
+      const newTime = segmentStart + segmentTime;
+      // Only update if time changed by more than 100ms to reduce re-renders
+      setGlobalTime(prev => Math.abs(prev - newTime) > 0.1 ? newTime : prev);
     },
     [currentSegmentIndex, segmentStartTimes]
   );
@@ -123,14 +119,20 @@ export function useSlideSequencer(options: UseSlideSequencerOptions) {
   // Load first segment on mount
   useEffect(() => {
     if (segments.length === 0) return;
-    if (hasLoadedFirstSegmentRef.current) return;
 
     const segment = segments[0];
     const url = getAudioUrl(segment);
     audioPlayerRef.current.load(url);
-    hasLoadedFirstSegmentRef.current = true;
     optionsRef.current.onSegmentChange?.(segment, 0);
     optionsRef.current.onSlideChange?.(segment.slide_index);
+
+    // Mark as loaded to prevent duplicate loads from segment change effect
+    hasLoadedFirstSegmentRef.current = true;
+
+    return () => {
+      // Reset on cleanup (for Strict Mode)
+      hasLoadedFirstSegmentRef.current = false;
+    };
   }, [segments, getAudioUrl]);
 
   // Load segment when index changes
@@ -224,18 +226,32 @@ export function useSlideSequencer(options: UseSlideSequencerOptions) {
     return getSlideUrl(currentSegment);
   }, [currentSegment, getSlideUrl]);
 
-  return {
-    state: {
-      currentSegmentIndex,
-      currentSlideIndex,
-      globalTime,
-      totalDuration,
-      isPlaying: audioPlayer.state.isPlaying,
-      isLoading: audioPlayer.state.isLoading,
-      error: audioPlayer.state.error,
-      volume: audioPlayer.state.volume,
-      playbackRate: audioPlayer.state.playbackRate,
-    },
+  // Memoize state object to prevent unnecessary re-renders
+  const state = useMemo(() => ({
+    currentSegmentIndex,
+    currentSlideIndex,
+    globalTime,
+    totalDuration,
+    isPlaying: audioPlayer.state.isPlaying,
+    isLoading: audioPlayer.state.isLoading,
+    error: audioPlayer.state.error,
+    volume: audioPlayer.state.volume,
+    playbackRate: audioPlayer.state.playbackRate,
+  }), [
+    currentSegmentIndex,
+    currentSlideIndex,
+    globalTime,
+    totalDuration,
+    audioPlayer.state.isPlaying,
+    audioPlayer.state.isLoading,
+    audioPlayer.state.error,
+    audioPlayer.state.volume,
+    audioPlayer.state.playbackRate,
+  ]);
+
+  // Memoize entire return object
+  return useMemo(() => ({
+    state,
     currentSegment,
     segments,
     segmentStartTimes,
@@ -251,5 +267,22 @@ export function useSlideSequencer(options: UseSlideSequencerOptions) {
     getSlideUrl,
     getThumbnailUrl,
     getCurrentSlideUrl,
-  };
+  }), [
+    state,
+    currentSegment,
+    segments,
+    segmentStartTimes,
+    audioPlayer.play,
+    audioPlayer.pause,
+    audioPlayer.toggle,
+    seekToTime,
+    seekToSegment,
+    seekToSlide,
+    playFromStart,
+    audioPlayer.setVolume,
+    audioPlayer.setPlaybackRate,
+    getSlideUrl,
+    getThumbnailUrl,
+    getCurrentSlideUrl,
+  ]);
 }

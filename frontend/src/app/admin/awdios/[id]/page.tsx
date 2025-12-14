@@ -18,9 +18,15 @@ import {
   listAwdioSessions,
   createAwdioSession,
   deleteAwdioSession,
+  createAwdioKnowledgeBase,
+  deleteAwdioKnowledgeBase,
+  listAwdioKnowledgeBases,
+  listAwdioKBImages,
+  uploadAwdioKBImage,
+  deleteAwdioKBImage,
   API_URL,
 } from "@/lib/api";
-import type { Awdio, AwdioSession, Presenter, Slide, SlideDeck } from "@/lib/types";
+import type { Awdio, AwdioKBImage, AwdioKnowledgeBase, AwdioSession, Presenter, Slide, SlideDeck } from "@/lib/types";
 
 export default function AwdioDetailPage() {
   const params = useParams();
@@ -63,26 +69,44 @@ export default function AwdioDetailPage() {
   const [editSpeakerNotes, setEditSpeakerNotes] = useState("");
   const [savingSlide, setSavingSlide] = useState(false);
 
+  // Knowledge Base
+  const [knowledgeBases, setKnowledgeBases] = useState<AwdioKnowledgeBase[]>([]);
+  const [selectedKB, setSelectedKB] = useState<string | null>(null);
+  const [kbImages, setKBImages] = useState<AwdioKBImage[]>([]);
+  const [showCreateKB, setShowCreateKB] = useState(false);
+  const [newKBName, setNewKBName] = useState("");
+  const [showImageForm, setShowImageForm] = useState(false);
+  const [imageTitle, setImageTitle] = useState("");
+  const [imageDescription, setImageDescription] = useState("");
+  const [imageAssociatedText, setImageAssociatedText] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [awdioData, decksData, sessionsData, presentersData] = await Promise.all([
+      const [awdioData, decksData, sessionsData, presentersData, kbData] = await Promise.all([
         getAwdio(awdioId),
         listSlideDecks(awdioId),
         listAwdioSessions(awdioId),
         listPresenters(),
+        listAwdioKnowledgeBases(awdioId),
       ]);
       setAwdio(awdioData);
       setSlideDecks(decksData);
       setSessions(sessionsData);
       setPresenters(presentersData);
+      setKnowledgeBases(kbData);
+      if (kbData.length > 0 && !selectedKB) {
+        setSelectedKB(kbData[0].id);
+      }
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
-  }, [awdioId]);
+  }, [awdioId, selectedKB]);
 
   const loadSlides = useCallback(
     async (deckId: string) => {
@@ -107,6 +131,16 @@ export default function AwdioDetailPage() {
       setSlides([]);
     }
   }, [selectedDeck, loadSlides]);
+
+  useEffect(() => {
+    if (selectedKB) {
+      listAwdioKBImages(awdioId, selectedKB)
+        .then(setKBImages)
+        .catch(console.error);
+    } else {
+      setKBImages([]);
+    }
+  }, [awdioId, selectedKB]);
 
   async function handleCreateDeck(e: React.FormEvent) {
     e.preventDefault();
@@ -318,6 +352,75 @@ export default function AwdioDetailPage() {
       setError(e instanceof Error ? e.message : "Failed to save slide");
     } finally {
       setSavingSlide(false);
+    }
+  }
+
+  async function handleCreateKB(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newKBName.trim()) return;
+
+    try {
+      const kb = await createAwdioKnowledgeBase(awdioId, { name: newKBName.trim() });
+      setNewKBName("");
+      setShowCreateKB(false);
+      setSelectedKB(kb.id);
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create knowledge base");
+    }
+  }
+
+  async function handleDeleteKB(kbId: string) {
+    if (!confirm("Delete this knowledge base and all its content?")) return;
+
+    try {
+      await deleteAwdioKnowledgeBase(awdioId, kbId);
+      if (selectedKB === kbId) setSelectedKB(null);
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete knowledge base");
+    }
+  }
+
+  async function handleImageUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedKB || !imageFile || !imageAssociatedText.trim()) return;
+
+    try {
+      setUploadingImage(true);
+      setError(null);
+      await uploadAwdioKBImage(
+        awdioId,
+        selectedKB,
+        imageFile,
+        imageTitle.trim() || null,
+        imageDescription.trim() || null,
+        imageAssociatedText.trim()
+      );
+      const images = await listAwdioKBImages(awdioId, selectedKB);
+      setKBImages(images);
+      setShowImageForm(false);
+      setImageTitle("");
+      setImageDescription("");
+      setImageAssociatedText("");
+      setImageFile(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to upload image");
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  async function handleDeleteImage(imageId: string) {
+    if (!selectedKB) return;
+    if (!confirm("Delete this image?")) return;
+
+    try {
+      await deleteAwdioKBImage(awdioId, selectedKB, imageId);
+      const images = await listAwdioKBImages(awdioId, selectedKB);
+      setKBImages(images);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete image");
     }
   }
 
@@ -760,6 +863,208 @@ export default function AwdioDetailPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Knowledge Base Section */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Knowledge Base Images</h2>
+          <button
+            onClick={() => setShowCreateKB(true)}
+            className="px-3 py-1 text-sm bg-white text-black font-medium rounded hover:bg-gray-200 transition-colors"
+          >
+            + New KB
+          </button>
+        </div>
+
+        <p className="text-sm text-gray-400 mb-4">
+          Upload images with text context for Q&A visual responses. These images can be shown during the presentation when answering related questions.
+        </p>
+
+        {showCreateKB && (
+          <div className="mb-4 p-4 bg-gray-900 border border-gray-800 rounded-lg">
+            <form onSubmit={handleCreateKB} className="space-y-3">
+              <input
+                type="text"
+                value={newKBName}
+                onChange={(e) => setNewKBName(e.target.value)}
+                placeholder="Knowledge base name"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm"
+                required
+              />
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="px-3 py-1 text-sm bg-white text-black font-medium rounded"
+                >
+                  Create
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateKB(false)}
+                  className="px-3 py-1 text-sm border border-gray-600 rounded"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {knowledgeBases.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 border border-dashed border-gray-700 rounded-lg">
+            <p>No knowledge bases yet</p>
+            <p className="text-sm mt-1">Create one to upload images for Q&A</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            {/* KB List */}
+            <div className="space-y-2">
+              {knowledgeBases.map((kb) => (
+                <div
+                  key={kb.id}
+                  className={`p-3 rounded-lg cursor-pointer flex justify-between items-center ${
+                    selectedKB === kb.id
+                      ? "bg-gray-700 border border-gray-600"
+                      : "bg-gray-800 hover:bg-gray-700"
+                  }`}
+                  onClick={() => setSelectedKB(kb.id)}
+                >
+                  <span className="font-medium text-sm">{kb.name}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteKB(kb.id);
+                    }}
+                    className="text-red-400 hover:text-red-300 text-xs"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Images Grid */}
+            <div className="lg:col-span-3">
+              {selectedKB ? (
+                <div>
+                  <button
+                    onClick={() => setShowImageForm(true)}
+                    className="mb-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                  >
+                    + Add Image
+                  </button>
+
+                  {showImageForm && (
+                    <form
+                      onSubmit={handleImageUpload}
+                      className="mb-4 p-4 bg-gray-800 rounded-lg space-y-3"
+                    >
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Image File *</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                          className="block w-full text-sm text-gray-400"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Title</label>
+                        <input
+                          type="text"
+                          value={imageTitle}
+                          onChange={(e) => setImageTitle(e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm"
+                          placeholder="Optional title"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Associated Text * (for semantic search)
+                        </label>
+                        <textarea
+                          value={imageAssociatedText}
+                          onChange={(e) => setImageAssociatedText(e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm"
+                          rows={3}
+                          placeholder="Describe when this image should be shown during Q&A..."
+                          required
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="submit"
+                          disabled={uploadingImage || !imageFile || !imageAssociatedText.trim()}
+                          className="px-4 py-2 bg-white text-black rounded text-sm disabled:opacity-50"
+                        >
+                          {uploadingImage ? "Uploading..." : "Upload"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowImageForm(false);
+                            setImageTitle("");
+                            setImageDescription("");
+                            setImageAssociatedText("");
+                            setImageFile(null);
+                          }}
+                          className="px-4 py-2 border border-gray-600 rounded text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {kbImages.length === 0 ? (
+                    <p className="text-gray-500 text-sm">No images in this knowledge base.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {kbImages.map((image) => (
+                        <div
+                          key={image.id}
+                          className="bg-gray-800 rounded-lg overflow-hidden"
+                        >
+                          <div className="aspect-video bg-gray-700 flex items-center justify-center">
+                            {image.thumbnail_path ? (
+                              <img
+                                src={`${API_URL}/api/v1/audio/${image.thumbnail_path}`}
+                                alt={image.title || image.filename}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-gray-500 text-sm">No preview</span>
+                            )}
+                          </div>
+                          <div className="p-3">
+                            <p className="font-medium text-sm truncate">
+                              {image.title || image.filename}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                              {image.associated_text}
+                            </p>
+                            <button
+                              onClick={() => handleDeleteImage(image.id)}
+                              className="mt-2 text-red-400 hover:text-red-300 text-xs"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-400 border border-dashed border-gray-700 rounded-lg">
+                  Select a knowledge base to manage images
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

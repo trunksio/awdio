@@ -26,6 +26,7 @@ dependencies = [
     # AI & ML
     "openai>=1.57.0",
     "pyneuphonic>=1.0.0",
+    "elevenlabs>=1.0.0",
 
     # Document processing
     "pypdf>=5.0.0",

@@ -3,20 +3,25 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 import {
   createPresenterKnowledgeBase,
   deletePresenterDocument,
+  deletePresenterKBImage,
   deletePresenterKnowledgeBase,
   getPresenter,
   listPresenterDocuments,
+  listPresenterKBImages,
   listPresenterKnowledgeBases,
   listVoices,
   updatePresenter,
   uploadPresenterDocument,
+  uploadPresenterKBImage,
   type PresenterDocument,
   type PresenterKnowledgeBase,
 } from "@/lib/api";
-import type { Presenter, Voice } from "@/lib/types";
+import type { Presenter, PresenterKBImage, Voice } from "@/lib/types";
 
 export default function PresenterDetailPage() {
   const params = useParams();
@@ -27,6 +32,8 @@ export default function PresenterDetailPage() {
   const [knowledgeBases, setKnowledgeBases] = useState<PresenterKnowledgeBase[]>([]);
   const [selectedKB, setSelectedKB] = useState<string | null>(null);
   const [documents, setDocuments] = useState<PresenterDocument[]>([]);
+  const [kbImages, setKBImages] = useState<PresenterKBImage[]>([]);
+  const [kbTab, setKBTab] = useState<"documents" | "images">("documents");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +49,13 @@ export default function PresenterDetailPage() {
   const [showCreateKB, setShowCreateKB] = useState(false);
   const [newKBName, setNewKBName] = useState("");
   const [uploading, setUploading] = useState(false);
+
+  // Image upload form
+  const [showImageForm, setShowImageForm] = useState(false);
+  const [imageTitle, setImageTitle] = useState("");
+  const [imageDescription, setImageDescription] = useState("");
+  const [imageAssociatedText, setImageAssociatedText] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -80,6 +94,9 @@ export default function PresenterDetailPage() {
     if (selectedKB) {
       listPresenterDocuments(presenterId, selectedKB)
         .then(setDocuments)
+        .catch(console.error);
+      listPresenterKBImages(presenterId, selectedKB)
+        .then(setKBImages)
         .catch(console.error);
     }
   }, [presenterId, selectedKB]);
@@ -165,6 +182,48 @@ export default function PresenterDetailPage() {
       setDocuments(docs);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete document");
+    }
+  }
+
+  async function handleImageUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedKB || !imageFile || !imageAssociatedText.trim()) return;
+
+    try {
+      setUploading(true);
+      setError(null);
+      await uploadPresenterKBImage(
+        presenterId,
+        selectedKB,
+        imageFile,
+        imageTitle.trim() || null,
+        imageDescription.trim() || null,
+        imageAssociatedText.trim()
+      );
+      const images = await listPresenterKBImages(presenterId, selectedKB);
+      setKBImages(images);
+      setShowImageForm(false);
+      setImageTitle("");
+      setImageDescription("");
+      setImageAssociatedText("");
+      setImageFile(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to upload image");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteImage(imageId: string) {
+    if (!selectedKB) return;
+    if (!confirm("Delete this image?")) return;
+
+    try {
+      await deletePresenterKBImage(presenterId, selectedKB, imageId);
+      const images = await listPresenterKBImages(presenterId, selectedKB);
+      setKBImages(images);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete image");
     }
   }
 
@@ -413,57 +472,214 @@ export default function PresenterDetailPage() {
 
           {selectedKB && (
             <div className="mt-6">
-              <h3 className="text-lg font-medium mb-3">Documents</h3>
-              <div className="mb-4">
-                <label className="block">
-                  <span className="sr-only">Upload document</span>
-                  <input
-                    type="file"
-                    accept=".pdf,.docx,.txt,.md"
-                    onChange={handleFileUpload}
-                    disabled={uploading}
-                    className="block w-full text-sm text-gray-400
-                      file:mr-4 file:py-2 file:px-4
-                      file:rounded file:border-0
-                      file:text-sm file:font-medium
-                      file:bg-gray-700 file:text-white
-                      hover:file:bg-gray-600
-                      disabled:opacity-50"
-                  />
-                </label>
-                {uploading && (
-                  <p className="text-sm text-gray-400 mt-1">
-                    Uploading and processing...
-                  </p>
-                )}
+              {/* Tabs */}
+              <div className="flex border-b border-gray-700 mb-4">
+                <button
+                  onClick={() => setKBTab("documents")}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+                    kbTab === "documents"
+                      ? "border-white text-white"
+                      : "border-transparent text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Documents
+                </button>
+                <button
+                  onClick={() => setKBTab("images")}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+                    kbTab === "images"
+                      ? "border-white text-white"
+                      : "border-transparent text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Images ({kbImages.length})
+                </button>
               </div>
 
-              {documents.length === 0 ? (
-                <p className="text-gray-500 text-sm">No documents yet.</p>
+              {kbTab === "documents" ? (
+                <>
+                  <div className="mb-4">
+                    <label className="block">
+                      <span className="sr-only">Upload document</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.txt,.md"
+                        onChange={handleFileUpload}
+                        disabled={uploading}
+                        className="block w-full text-sm text-gray-400
+                          file:mr-4 file:py-2 file:px-4
+                          file:rounded file:border-0
+                          file:text-sm file:font-medium
+                          file:bg-gray-700 file:text-white
+                          hover:file:bg-gray-600
+                          disabled:opacity-50"
+                      />
+                    </label>
+                    {uploading && (
+                      <p className="text-sm text-gray-400 mt-1">
+                        Uploading and processing...
+                      </p>
+                    )}
+                  </div>
+
+                  {documents.length === 0 ? (
+                    <p className="text-gray-500 text-sm">No documents yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {documents.map((doc) => (
+                        <div
+                          key={doc.id}
+                          className="p-3 bg-gray-800 rounded-lg flex justify-between items-center"
+                        >
+                          <div>
+                            <span className="font-medium">{doc.filename}</span>
+                            {!doc.processed && (
+                              <span className="text-yellow-500 text-sm ml-2">
+                                Processing...
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleDeleteDoc(doc.id)}
+                            className="text-red-400 hover:text-red-300 text-sm"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="space-y-2">
-                  {documents.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="p-3 bg-gray-800 rounded-lg flex justify-between items-center"
+                <>
+                  <p className="text-sm text-gray-400 mb-4">
+                    Upload images with associated text for visual Q&A responses.
+                  </p>
+                  <button
+                    onClick={() => setShowImageForm(true)}
+                    className="mb-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                  >
+                    + Add Image
+                  </button>
+
+                  {showImageForm && (
+                    <form
+                      onSubmit={handleImageUpload}
+                      className="mb-4 p-4 bg-gray-800 rounded-lg space-y-3"
                     >
                       <div>
-                        <span className="font-medium">{doc.filename}</span>
-                        {!doc.processed && (
-                          <span className="text-yellow-500 text-sm ml-2">
-                            Processing...
-                          </span>
-                        )}
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Image File *
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                          className="block w-full text-sm text-gray-400"
+                          required
+                        />
                       </div>
-                      <button
-                        onClick={() => handleDeleteDoc(doc.id)}
-                        className="text-red-400 hover:text-red-300 text-sm"
-                      >
-                        Delete
-                      </button>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Title
+                        </label>
+                        <input
+                          type="text"
+                          value={imageTitle}
+                          onChange={(e) => setImageTitle(e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm"
+                          placeholder="Optional title"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Description
+                        </label>
+                        <input
+                          type="text"
+                          value={imageDescription}
+                          onChange={(e) => setImageDescription(e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm"
+                          placeholder="Optional description"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Associated Text * (for semantic search)
+                        </label>
+                        <textarea
+                          value={imageAssociatedText}
+                          onChange={(e) => setImageAssociatedText(e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm"
+                          rows={3}
+                          placeholder="Describe what this image shows and when it should be displayed during Q&A..."
+                          required
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="submit"
+                          disabled={uploading || !imageFile || !imageAssociatedText.trim()}
+                          className="px-4 py-2 bg-white text-black rounded text-sm disabled:opacity-50"
+                        >
+                          {uploading ? "Uploading..." : "Upload"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowImageForm(false);
+                            setImageTitle("");
+                            setImageDescription("");
+                            setImageAssociatedText("");
+                            setImageFile(null);
+                          }}
+                          className="px-4 py-2 border border-gray-600 rounded text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {kbImages.length === 0 ? (
+                    <p className="text-gray-500 text-sm">No images yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4">
+                      {kbImages.map((image) => (
+                        <div
+                          key={image.id}
+                          className="bg-gray-800 rounded-lg overflow-hidden"
+                        >
+                          <div className="aspect-video bg-gray-700 flex items-center justify-center">
+                            {image.thumbnail_path ? (
+                              <img
+                                src={`${API_URL}/api/v1/audio/${image.thumbnail_path}`}
+                                alt={image.title || image.filename}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-gray-500 text-sm">No preview</span>
+                            )}
+                          </div>
+                          <div className="p-3">
+                            <p className="font-medium text-sm truncate">
+                              {image.title || image.filename}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                              {image.associated_text}
+                            </p>
+                            <button
+                              onClick={() => handleDeleteImage(image.id)}
+                              className="mt-2 text-red-400 hover:text-red-300 text-xs"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
           )}

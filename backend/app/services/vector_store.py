@@ -4,6 +4,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.awdio import AwdioChunk
 from app.models.knowledge_base import Chunk
 from app.models.presenter import PresenterChunk
 
@@ -222,6 +223,60 @@ class VectorStore:
                     "presenter_name": row.presenter_name,
                     "similarity": similarity,
                     "source_type": "presenter",
+                })
+
+        return results
+
+    async def awdio_similarity_search(
+        self,
+        query_embedding: list[float],
+        awdio_id: uuid.UUID,
+        top_k: int = 5,
+        threshold: float | None = None,
+    ) -> list[dict]:
+        """Find most similar chunks from an awdio's knowledge base."""
+        embedding_str = str(query_embedding)
+        awdio_id_str = str(awdio_id)
+
+        query = text("""
+            SELECT
+                ac.id,
+                ac.content,
+                ac.chunk_index,
+                ac.chunk_metadata,
+                ac.document_id,
+                ad.filename,
+                akb.awdio_id,
+                1 - (ac.embedding <=> CAST(:emb AS vector)) as similarity
+            FROM awdio_chunks ac
+            JOIN awdio_documents ad ON ac.document_id = ad.id
+            JOIN awdio_knowledge_bases akb ON ad.knowledge_base_id = akb.id
+            WHERE akb.awdio_id = CAST(:awdio_id AS uuid)
+            ORDER BY ac.embedding <=> CAST(:emb AS vector)
+            LIMIT :lim
+        """).bindparams(
+            bindparam("emb", value=embedding_str),
+            bindparam("awdio_id", value=awdio_id_str),
+            bindparam("lim", value=top_k),
+        )
+
+        result = await self.session.execute(query)
+        rows = result.fetchall()
+        results = []
+
+        for row in rows:
+            similarity = float(row.similarity)
+            if threshold is None or similarity >= threshold:
+                results.append({
+                    "id": row.id,
+                    "content": row.content,
+                    "chunk_index": row.chunk_index,
+                    "metadata": row.chunk_metadata,
+                    "document_id": row.document_id,
+                    "filename": row.filename,
+                    "awdio_id": row.awdio_id,
+                    "similarity": similarity,
+                    "source_type": "awdio",
                 })
 
         return results

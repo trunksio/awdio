@@ -1,7 +1,7 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,6 +13,7 @@ from app.models.presenter import (
     Presenter,
     PresenterChunk,
     PresenterDocument,
+    PresenterKBImage,
     PresenterKnowledgeBase,
 )
 from app.schemas.presenter import (
@@ -21,6 +22,7 @@ from app.schemas.presenter import (
     PodcastPresenterWithDetails,
     PresenterCreate,
     PresenterDocumentResponse,
+    PresenterKBImageResponse,
     PresenterKnowledgeBaseCreate,
     PresenterKnowledgeBaseResponse,
     PresenterResponse,
@@ -28,6 +30,7 @@ from app.schemas.presenter import (
 )
 from app.services.document_processor import DocumentProcessor
 from app.services.embedding_service import EmbeddingService
+from app.services.kb_image_processor import KBImageProcessor
 from app.services.storage_service import StorageService
 
 router = APIRouter(prefix="/presenters", tags=["presenters"])
@@ -311,6 +314,95 @@ async def delete_presenter_document(
 
     await db.delete(doc)
     await db.commit()
+
+
+# Presenter KB Image endpoints
+@router.get(
+    "/{presenter_id}/knowledge-bases/{kb_id}/images",
+    response_model=list[PresenterKBImageResponse],
+)
+async def list_presenter_kb_images(
+    presenter_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[PresenterKBImage]:
+    """List images in a presenter's knowledge base."""
+    processor = KBImageProcessor()
+    return await processor.list_presenter_images(db, kb_id)
+
+
+@router.post(
+    "/{presenter_id}/knowledge-bases/{kb_id}/images",
+    response_model=PresenterKBImageResponse,
+    status_code=201,
+)
+async def upload_presenter_kb_image(
+    presenter_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+    description: str | None = Form(None),
+    associated_text: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+) -> PresenterKBImage:
+    """
+    Upload an image to a presenter's knowledge base.
+
+    The associated_text is used for semantic search during Q&A.
+    """
+    # Verify knowledge base exists and belongs to presenter
+    result = await db.execute(
+        select(PresenterKnowledgeBase).where(
+            PresenterKnowledgeBase.id == kb_id,
+            PresenterKnowledgeBase.presenter_id == presenter_id,
+        )
+    )
+    kb = result.scalar_one_or_none()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    if not associated_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="associated_text is required for semantic search",
+        )
+
+    processor = KBImageProcessor()
+    try:
+        return await processor.upload_presenter_image(
+            db=db,
+            knowledge_base_id=kb_id,
+            file=file,
+            title=title,
+            description=description,
+            associated_text=associated_text,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete(
+    "/{presenter_id}/knowledge-bases/{kb_id}/images/{image_id}", status_code=204
+)
+async def delete_presenter_kb_image(
+    presenter_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    image_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete an image from a presenter's knowledge base."""
+    # Verify ownership
+    result = await db.execute(
+        select(PresenterKBImage).where(
+            PresenterKBImage.id == image_id,
+            PresenterKBImage.knowledge_base_id == kb_id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    processor = KBImageProcessor()
+    await processor.delete_presenter_image(db, image_id)
 
 
 # Podcast-Presenter assignment endpoints

@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.models.podcast import Episode, Script
 from app.models.presenter import PodcastPresenter, Presenter
 from app.services.rag import AnswerGenerator, BridgeGenerator, RAGQueryService
-from app.services.tts import NeuphonicsService, VoiceManager
+from app.services.tts import TTSFactory, VoiceManager
 from app.websocket.connection_manager import ConnectionManager
 
 
@@ -28,7 +28,6 @@ class InterruptionHandler:
         self.rag_query = RAGQueryService(session)
         self.answer_generator = AnswerGenerator()
         self.bridge_generator = BridgeGenerator()
-        self.tts = NeuphonicsService()
         self.voice_manager = VoiceManager(session)
 
     async def handle_message(self, message: dict[str, Any]) -> None:
@@ -111,9 +110,10 @@ class InterruptionHandler:
                 print(f"[Q&A] Sending acknowledgment: {ack_text}")
 
                 try:
-                    ack_audio = await self.tts.synthesize(
+                    tts = TTSFactory.get_provider(host_voice.tts_provider)
+                    ack_audio = await tts.synthesize(
                         text=ack_text,
-                        voice_id=host_voice.neuphonic_voice_id,
+                        voice_id=host_voice.effective_voice_id,
                         speed=1.0,
                     )
                     ack_b64 = base64.b64encode(ack_audio).decode("utf-8")
@@ -188,9 +188,10 @@ class InterruptionHandler:
                     {"type": "synthesizing_audio"},
                 )
 
-                audio_data = await self.tts.synthesize(
+                tts = TTSFactory.get_provider(voice.tts_provider)
+                audio_data = await tts.synthesize(
                     text=answer.text,
-                    voice_id=voice.neuphonic_voice_id,
+                    voice_id=voice.effective_voice_id,
                     speed=1.0,
                 )
 
@@ -214,9 +215,10 @@ class InterruptionHandler:
                     bridge_voice = host_voice or voice
                     bridge_text = self.bridge_generator.get_simple_bridge(host_name)
 
-                    bridge_audio = await self.tts.synthesize(
+                    tts = TTSFactory.get_provider(bridge_voice.tts_provider)
+                    bridge_audio = await tts.synthesize(
                         text=bridge_text,
-                        voice_id=bridge_voice.neuphonic_voice_id,
+                        voice_id=bridge_voice.effective_voice_id,
                         speed=1.0,
                     )
 

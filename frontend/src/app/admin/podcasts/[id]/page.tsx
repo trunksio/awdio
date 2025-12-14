@@ -316,9 +316,9 @@ export default function PodcastDetailPage() {
         {allPresenters.length === 0 && (
           <p className="text-gray-500 text-sm mt-2">
             No presenters exist yet.{" "}
-            <a href="/admin/presenters" className="text-white hover:underline">
+            <Link href="/admin/presenters" className="text-white hover:underline">
               Create a presenter
-            </a>{" "}
+            </Link>{" "}
             first.
           </p>
         )}

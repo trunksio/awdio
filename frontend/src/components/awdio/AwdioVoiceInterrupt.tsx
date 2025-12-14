@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWebSocket, type WebSocketMessage } from "@/hooks/useWebSocket";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 
@@ -20,6 +20,17 @@ export interface SlideSelectEvent {
   confidence: number;
 }
 
+export interface VisualSelectEvent {
+  visualType: "slide" | "kb_image";
+  visualId: string;
+  visualPath: string;
+  thumbnailPath: string | null;
+  source: "deck" | "presenter_kb" | "awdio_kb";
+  slideIndex: number | null;
+  reason: string;
+  confidence: number;
+}
+
 export interface AwdioVoiceInterruptProps {
   awdioId: string;
   sessionId: string;
@@ -33,11 +44,13 @@ export interface AwdioVoiceInterruptProps {
   onAnswerAudio?: (audioData: string, format: string) => void;
   onBridgeAudio?: (audioData: string, text: string) => void;
   onSlideSelect?: (event: SlideSelectEvent) => void;
+  onVisualSelect?: (event: VisualSelectEvent) => void;
+  onVisualClear?: (returnToSlideIndex: number) => void;
   onSlideClear?: (returnToSlideIndex: number) => void;
   disabled?: boolean;
 }
 
-export function AwdioVoiceInterrupt({
+export const AwdioVoiceInterrupt = memo(function AwdioVoiceInterrupt({
   awdioId,
   sessionId,
   currentSegmentIndex,
@@ -50,6 +63,8 @@ export function AwdioVoiceInterrupt({
   onAnswerAudio,
   onBridgeAudio,
   onSlideSelect,
+  onVisualSelect,
+  onVisualClear,
   onSlideClear,
   disabled = false,
 }: AwdioVoiceInterruptProps) {
@@ -57,6 +72,7 @@ export function AwdioVoiceInterrupt({
   const [answerText, setAnswerText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [selectedSlide, setSelectedSlide] = useState<SlideSelectEvent | null>(null);
+  const [selectedVisual, setSelectedVisual] = useState<VisualSelectEvent | null>(null);
   const [pendingResume, setPendingResume] = useState(false);
 
   const stateRef = useRef(state);
@@ -99,6 +115,7 @@ export function AwdioVoiceInterrupt({
           setState("idle");
           setAnswerText("");
           setSelectedSlide(null);
+          setSelectedVisual(null);
           onInterruptEnd?.();
         }, 1500);
       }
@@ -195,7 +212,7 @@ export function AwdioVoiceInterrupt({
           break;
 
         case "qa_slide_select":
-          // AI selected a slide to show during Q&A
+          // Legacy: AI selected a slide to show during Q&A
           const slideEvent: SlideSelectEvent = {
             slideId: message.slide_id as string,
             slideIndex: message.slide_index as number,
@@ -206,6 +223,23 @@ export function AwdioVoiceInterrupt({
           console.log("[Awdio Q&A] Slide selected:", slideEvent);
           setSelectedSlide(slideEvent);
           onSlideSelect?.(slideEvent);
+          break;
+
+        case "qa_visual_select":
+          // New: AI selected a visual (slide or KB image) to show during Q&A
+          const visualEvent: VisualSelectEvent = {
+            visualType: message.visual_type as "slide" | "kb_image",
+            visualId: message.visual_id as string,
+            visualPath: message.visual_path as string,
+            thumbnailPath: message.thumbnail_path as string | null,
+            source: message.source as "deck" | "presenter_kb" | "awdio_kb",
+            slideIndex: message.slide_index as number | null,
+            reason: message.reason as string,
+            confidence: message.confidence as number,
+          };
+          console.log("[Awdio Q&A] Visual selected:", visualEvent);
+          setSelectedVisual(visualEvent);
+          onVisualSelect?.(visualEvent);
           break;
 
         case "answer_text":
@@ -222,11 +256,19 @@ export function AwdioVoiceInterrupt({
           break;
 
         case "qa_slide_clear":
-          // Return to original slide after Q&A
+          // Legacy: Return to original slide after Q&A
           const returnIndex = message.return_to_slide_index as number;
           console.log("[Awdio Q&A] Clearing slide, return to:", returnIndex);
           setSelectedSlide(null);
           onSlideClear?.(returnIndex);
+          break;
+
+        case "qa_visual_clear":
+          // New: Return to original slide after Q&A (works with both slides and KB images)
+          const returnSlideIndex = message.return_to_slide_index as number;
+          console.log("[Awdio Q&A] Clearing visual, return to:", returnSlideIndex);
+          setSelectedVisual(null);
+          onVisualClear?.(returnSlideIndex);
           break;
 
         case "bridge_audio":
@@ -243,6 +285,7 @@ export function AwdioVoiceInterrupt({
             setState("idle");
             setAnswerText("");
             setSelectedSlide(null);
+            setSelectedVisual(null);
             onInterruptEnd?.();
           }
           break;
@@ -252,6 +295,7 @@ export function AwdioVoiceInterrupt({
           setState("idle");
           setAnswerText("");
           setSelectedSlide(null);
+          setSelectedVisual(null);
           onInterruptEnd?.();
           break;
 
@@ -263,6 +307,7 @@ export function AwdioVoiceInterrupt({
             setState("idle");
             setError(null);
             setSelectedSlide(null);
+            setSelectedVisual(null);
             onInterruptEnd?.();
           }, 3000);
           break;
@@ -274,7 +319,7 @@ export function AwdioVoiceInterrupt({
           console.log("[Awdio] Unknown message type:", message);
       }
     },
-    [onAnswerAudio, onBridgeAudio, onInterruptEnd, onSlideSelect, onSlideClear, queueAudio, stopAllAudio]
+    [onAnswerAudio, onBridgeAudio, onInterruptEnd, onSlideSelect, onSlideClear, onVisualSelect, onVisualClear, queueAudio, stopAllAudio]
   );
 
   const ws = useWebSocket({
@@ -283,25 +328,35 @@ export function AwdioVoiceInterrupt({
     reconnect: true,
   });
 
+  const wsRef = useRef(ws);
+  wsRef.current = ws;
+
   // Connect WebSocket on mount
   useEffect(() => {
     ws.connect();
-    return () => ws.disconnect();
+    return () => {
+      ws.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsUrl]);
 
-  // Update segment index
+  // Update segment index - only when segment changes, not on connect/disconnect
+  const lastSentSegmentRef = useRef<number>(-1);
   useEffect(() => {
-    if (ws.isConnected) {
-      ws.send({ type: "segment_update", segment_index: currentSegmentIndex });
+    if (wsRef.current.isConnected && currentSegmentIndex !== lastSentSegmentRef.current) {
+      wsRef.current.send({ type: "segment_update", segment_index: currentSegmentIndex });
+      lastSentSegmentRef.current = currentSegmentIndex;
     }
-  }, [currentSegmentIndex, ws.isConnected]);
+  }, [currentSegmentIndex]);
 
-  // Update slide index
+  // Update slide index - only when slide changes, not on connect/disconnect
+  const lastSentSlideRef = useRef<number>(-1);
   useEffect(() => {
-    if (ws.isConnected) {
-      ws.send({ type: "slide_update", slide_index: currentSlideIndex });
+    if (wsRef.current.isConnected && currentSlideIndex !== lastSentSlideRef.current) {
+      wsRef.current.send({ type: "slide_update", slide_index: currentSlideIndex });
+      lastSentSlideRef.current = currentSlideIndex;
     }
-  }, [currentSlideIndex, ws.isConnected]);
+  }, [currentSlideIndex]);
 
   // Speech recognition handlers
   const handleSpeechResult = useCallback(
@@ -320,59 +375,67 @@ export function AwdioVoiceInterrupt({
     interimResults: true,
   });
 
+  // Stable ref for speech functions to avoid callback recreation
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
+
   // Send transcript and stop listening
   const finishAndSend = useCallback(() => {
-    const transcript = transcriptRef.current.trim() || speech.transcript.trim();
+    // Use transcriptRef only - it's always updated by handleSpeechResult
+    const transcript = transcriptRef.current.trim();
     console.log("[Awdio PTT] finishAndSend, transcript:", transcript);
-    speech.stopListening();
+    speechRef.current.stopListening();
 
     if (transcript && stateRef.current === "listening") {
       console.log("[Awdio PTT] Sending question:", transcript);
-      ws.send({ type: "question", question: transcript });
+      wsRef.current.send({ type: "question", question: transcript });
       setState("processing");
       stateRef.current = "processing";
     } else if (stateRef.current === "listening") {
       console.log("[Awdio PTT] No transcript, cancelling");
       stopAllAudio();
-      ws.send({ type: "cancel_interruption" });
+      wsRef.current.send({ type: "cancel_interruption" });
       setState("idle");
       stateRef.current = "idle";
       setAnswerText("");
       setSelectedSlide(null);
+      setSelectedVisual(null);
       onInterruptEnd?.();
     }
 
     transcriptRef.current = "";
-  }, [ws, speech, stopAllAudio, onInterruptEnd]);
+  }, [stopAllAudio, onInterruptEnd]);
 
   // Start interrupt
   const startInterrupt = useCallback(() => {
-    if (!ws.isConnected || disabled) return;
+    if (!wsRef.current.isConnected || disabled) return;
     if (stateRef.current !== "idle") return;
 
     setError(null);
     setAnswerText("");
     setSelectedSlide(null);
+    setSelectedVisual(null);
     transcriptRef.current = "";
     setState("listening");
     stateRef.current = "listening";
     onInterruptStart?.();
 
-    ws.send({ type: "start_interruption" });
-    speech.startListening();
-  }, [ws, disabled, onInterruptStart, speech]);
+    wsRef.current.send({ type: "start_interruption" });
+    speechRef.current.startListening();
+  }, [disabled, onInterruptStart]);
 
   // Cancel interrupt
   const cancelInterrupt = useCallback(() => {
-    speech.stopListening();
+    speechRef.current.stopListening();
     stopAllAudio();
-    ws.send({ type: "cancel_interruption" });
+    wsRef.current.send({ type: "cancel_interruption" });
     setState("idle");
     setAnswerText("");
     setSelectedSlide(null);
+    setSelectedVisual(null);
     transcriptRef.current = "";
     onInterruptEnd?.();
-  }, [ws, speech, onInterruptEnd, stopAllAudio]);
+  }, [onInterruptEnd, stopAllAudio]);
 
   // Spacebar push-to-talk
   useEffect(() => {
@@ -496,15 +559,26 @@ export function AwdioVoiceInterrupt({
       <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-white/60">
         {state === "idle" && ws.isConnected && "Hold SPACE to ask"}
         {state === "idle" && !ws.isConnected && "Connecting..."}
-        {state === "listening" && (speech.transcript || transcriptRef.current || "Listening...")}
+        {state === "listening" && (transcriptRef.current || "Listening...")}
         {state === "processing" && "Thinking..."}
         {state === "error" && (error || "Error")}
       </div>
 
-      {/* Slide selection indicator */}
-      {selectedSlide && (
+      {/* Slide selection indicator (legacy) */}
+      {selectedSlide && !selectedVisual && (
         <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1 bg-blue-500/80 backdrop-blur-sm rounded-lg text-white text-xs whitespace-nowrap">
           Showing slide {selectedSlide.slideIndex + 1}
+        </div>
+      )}
+
+      {/* Visual selection indicator (new - supports both slides and KB images) */}
+      {selectedVisual && (
+        <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1 bg-blue-500/80 backdrop-blur-sm rounded-lg text-white text-xs whitespace-nowrap">
+          {selectedVisual.visualType === "slide"
+            ? `Showing slide ${(selectedVisual.slideIndex ?? 0) + 1}`
+            : selectedVisual.source === "presenter_kb"
+            ? "Showing presenter image"
+            : "Showing related image"}
         </div>
       )}
 
@@ -516,4 +590,4 @@ export function AwdioVoiceInterrupt({
       )}
     </div>
   );
-}
+});

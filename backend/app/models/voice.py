@@ -15,13 +15,27 @@ class Voice(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # TTS Provider fields
+    tts_provider: Mapped[str] = mapped_column(
+        String(50), nullable=False, server_default="neuphonic"
+    )  # "neuphonic" | "elevenlabs"
+    provider_voice_id: Mapped[str | None] = mapped_column(String(255))
+
+    # Legacy field - kept for backward compatibility, use provider_voice_id instead
     neuphonic_voice_id: Mapped[str | None] = mapped_column(String(255))
+
     is_cloned: Mapped[bool] = mapped_column(Boolean, default=False)
     clone_audio_path: Mapped[str | None] = mapped_column(String(500))
     voice_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+    @property
+    def effective_voice_id(self) -> str | None:
+        """Get the effective provider voice ID (prefers provider_voice_id over legacy field)."""
+        return self.provider_voice_id or self.neuphonic_voice_id
 
 
 class PodcastVoice(Base):

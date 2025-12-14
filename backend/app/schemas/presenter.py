@@ -61,6 +61,22 @@ class PresenterDocumentResponse(BaseModel):
     created_at: datetime
 
 
+# PresenterKBImage schemas
+class PresenterKBImageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    knowledge_base_id: uuid.UUID
+    filename: str
+    image_path: str
+    thumbnail_path: str | None
+    title: str | None
+    description: str | None
+    associated_text: str
+    image_metadata: dict
+    created_at: datetime
+
+
 # PodcastPresenter schemas
 class PodcastPresenterCreate(BaseModel):
     presenter_id: uuid.UUID
