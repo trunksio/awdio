@@ -20,7 +20,7 @@ dependencies = [
     "pgvector>=0.3.0",
 
     # Settings & validation
-    "pydantic>=2.10.0",
+    "pydantic[email]>=2.10.0",
     "pydantic-settings>=2.6.0",
 
     # AI & ML
@@ -38,8 +38,8 @@ dependencies = [
     # Object storage
     "minio>=7.2.0",
 
-    # WebSockets (pinned for pyneuphonic compatibility)
-    "websockets>=12.0,<13.0",
+    # WebSockets
+    "websockets>=12.0",
 
     # Utils (pinned for pyneuphonic compatibility)
     "httpx>=0.27.2,<0.28.0",

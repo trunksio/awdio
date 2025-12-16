@@ -1,3 +1,27 @@
+// Auth types
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar_url: string | null;
+  oauth_provider: string;
+  is_admin: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface OAuthLoginResponse {
+  authorization_url: string;
+  state: string;
+}
+
 export interface Podcast {
   id: string;
   title: string;

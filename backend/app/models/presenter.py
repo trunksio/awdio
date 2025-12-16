@@ -27,6 +27,12 @@ class Presenter(Base):
     voice_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("voices.id", ondelete="SET NULL")
     )
+
+    # Owner (user who created this presenter)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
     presenter_metadata: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )

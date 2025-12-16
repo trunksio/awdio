@@ -45,6 +45,57 @@ export interface PresenterDocument {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Token storage keys (matching AuthContext)
+const ACCESS_TOKEN_KEY = "awdio_access_token";
+const REFRESH_TOKEN_KEY = "awdio_refresh_token";
+
+function getAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+function setTokens(accessToken: string, refreshToken: string): void {
+  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+}
+
+function clearTokens(): void {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+
+  try {
+    const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      setTokens(data.access_token, data.refresh_token);
+      return true;
+    }
+
+    clearTokens();
+    return false;
+  } catch {
+    clearTokens();
+    return false;
+  }
+}
+
 export interface HealthResponse {
   status: string;
   database: string;
@@ -53,15 +104,45 @@ export interface HealthResponse {
 
 async function fetchAPI<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
+  skipAuth: boolean = false
 ): Promise<T> {
-  const response = await fetch(`${API_URL}${endpoint}`, {
+  const token = getAccessToken();
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string>),
+  };
+
+  // Add auth header if token exists and not skipping auth
+  if (token && !skipAuth) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  let response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
+    headers,
   });
+
+  // Handle 401 - try to refresh token and retry
+  if (response.status === 401 && token && !skipAuth) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      // Retry with new token
+      const newToken = getAccessToken();
+      headers["Authorization"] = `Bearer ${newToken}`;
+      response = await fetch(`${API_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
+    } else {
+      // Redirect to login
+      if (typeof window !== "undefined") {
+        window.location.href = "/auth/login";
+      }
+      throw new Error("Session expired");
+    }
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));

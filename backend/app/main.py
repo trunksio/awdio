@@ -6,6 +6,7 @@ from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
+from app.auth.router import router as auth_router
 from app.config import settings
 from app.database import async_session_maker
 from app.websocket import InterruptionHandler, manager, AwdioInterruptionHandler, awdio_manager
@@ -36,6 +37,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
 
 
 # WebSocket endpoint for podcast listening with Q&A

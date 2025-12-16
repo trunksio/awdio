@@ -26,6 +26,11 @@ class Awdio(Base):
         UUID(as_uuid=True), ForeignKey("presenters.id", ondelete="SET NULL")
     )
 
+    # Owner (user who created this awdio)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

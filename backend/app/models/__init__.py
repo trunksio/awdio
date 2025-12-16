@@ -1,3 +1,4 @@
+from app.auth.models import RefreshToken, ResourceShare, User
 from app.models.awdio import (
     Awdio,
     AwdioChunk,
@@ -23,6 +24,10 @@ from app.models.presenter import (
 from app.models.voice import PodcastVoice, Voice
 
 __all__ = [
+    # Auth models
+    "User",
+    "RefreshToken",
+    "ResourceShare",
     # Awdio models
     "Awdio",
     "SlideDeck",
