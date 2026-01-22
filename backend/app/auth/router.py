@@ -2,10 +2,12 @@
 
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,12 +22,15 @@ from app.auth.jwt import (
 from app.auth.models import RefreshToken, ResourceShare, User
 from app.auth.oauth import OAuthUserInfo, get_oauth_provider
 from app.auth.schemas import (
+    AuthCodeExchange,
     OAuthLoginResponse,
     RefreshTokenRequest,
     ShareCreate,
     ShareListResponse,
     ShareResponse,
     TokenResponse,
+    UserApprovalUpdate,
+    UserListResponse,
     UserResponse,
 )
 from app.config import settings
@@ -33,24 +38,43 @@ from app.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Rate limiter for auth endpoints
+limiter = Limiter(key_func=get_remote_address)
+
 # Store OAuth states temporarily (in production, use Redis)
 _oauth_states: dict[str, datetime] = {}
 
+# Store temporary auth codes for token exchange (code -> user_id, expires)
+# In production, use Redis with TTL
+_auth_codes: dict[str, tuple[uuid.UUID, datetime]] = {}
+
 
 def _cleanup_expired_states():
-    """Remove expired OAuth states."""
+    """Remove expired OAuth states and auth codes."""
     now = datetime.now(timezone.utc)
-    expired = [
+
+    # Clean OAuth states (10 minute expiry)
+    expired_states = [
         state
         for state, created in _oauth_states.items()
-        if (now - created).total_seconds() > 600  # 10 minutes
+        if (now - created).total_seconds() > 600
     ]
-    for state in expired:
+    for state in expired_states:
         _oauth_states.pop(state, None)
+
+    # Clean auth codes (5 minute expiry)
+    expired_codes = [
+        code
+        for code, (_, expires) in _auth_codes.items()
+        if now > expires
+    ]
+    for code in expired_codes:
+        _auth_codes.pop(code, None)
 
 
 @router.get("/login/{provider}")
-async def oauth_login(provider: str) -> OAuthLoginResponse:
+@limiter.limit("10/minute")
+async def oauth_login(request: Request, provider: str) -> OAuthLoginResponse:
     """
     Get OAuth authorization URL.
 
@@ -75,7 +99,9 @@ async def oauth_login(provider: str) -> OAuthLoginResponse:
 
 
 @router.get("/callback/{provider}")
+@limiter.limit("10/minute")
 async def oauth_callback(
+    request: Request,
     provider: str,
     code: str,
     state: str,
@@ -132,27 +158,22 @@ async def oauth_callback(
     # Find or create user
     user = await _get_or_create_user(db, user_info)
 
-    # Create tokens
-    jwt_access_token = create_access_token(user)
-    refresh_token_id = uuid.uuid4()
-    jwt_refresh_token = create_refresh_token(user.id, refresh_token_id)
+    # Check if user is approved
+    if not user.is_approved:
+        # Redirect to pending approval page
+        redirect_url = f"{settings.frontend_url}/auth/pending"
+        return RedirectResponse(url=redirect_url)
 
-    # Store refresh token
-    refresh_token_record = RefreshToken(
-        id=refresh_token_id,
-        user_id=user.id,
-        token_hash=hash_token(jwt_refresh_token),
-        expires_at=get_token_expiry(days=settings.refresh_token_expire_days),
-    )
-    db.add(refresh_token_record)
-    await db.commit()
+    # Generate a temporary auth code (one-time use, short-lived)
+    # The frontend will exchange this for tokens via POST request
+    auth_code = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
 
-    # Redirect to frontend with tokens
-    redirect_url = (
-        f"{settings.frontend_url}/auth/callback?"
-        f"access_token={jwt_access_token}&"
-        f"refresh_token={jwt_refresh_token}"
-    )
+    # Store auth code -> user_id mapping
+    _auth_codes[auth_code] = (user.id, expires_at)
+
+    # Redirect to frontend with only the auth code (not tokens)
+    redirect_url = f"{settings.frontend_url}/auth/callback/{provider}?code={auth_code}"
     return RedirectResponse(url=redirect_url)
 
 
@@ -192,7 +213,7 @@ async def _get_or_create_user(db: AsyncSession, user_info: OAuthUserInfo) -> Use
         return existing_by_email
 
     # Create new user
-    # First user becomes admin
+    # First user becomes admin and is auto-approved
     result = await db.execute(select(User).limit(1))
     is_first_user = result.scalar_one_or_none() is None
 
@@ -203,6 +224,7 @@ async def _get_or_create_user(db: AsyncSession, user_info: OAuthUserInfo) -> Use
         oauth_provider=user_info.provider,
         oauth_id=user_info.oauth_id,
         is_admin=is_first_user,
+        is_approved=is_first_user,  # First user auto-approved, others need approval
         last_login_at=datetime.now(timezone.utc),
     )
     db.add(user)
@@ -211,9 +233,81 @@ async def _get_or_create_user(db: AsyncSession, user_info: OAuthUserInfo) -> Use
     return user
 
 
+@router.post("/exchange", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def exchange_auth_code(
+    request: Request,
+    body: AuthCodeExchange,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """
+    Exchange a one-time auth code for access and refresh tokens.
+
+    This endpoint is called by the frontend after the OAuth callback redirect.
+    The auth code is single-use and expires after 5 minutes.
+    """
+    _cleanup_expired_states()
+
+    # Look up the auth code
+    if body.code not in _auth_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired auth code",
+        )
+
+    user_id, expires_at = _auth_codes.pop(body.code)  # Single use - remove immediately
+
+    # Check expiry
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Auth code has expired",
+        )
+
+    # Get user
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not found",
+        )
+
+    # Double-check approval status
+    if not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account pending approval",
+        )
+
+    # Create tokens
+    jwt_access_token = create_access_token(user)
+    refresh_token_id = uuid.uuid4()
+    jwt_refresh_token = create_refresh_token(user.id, refresh_token_id)
+
+    # Store refresh token
+    refresh_token_record = RefreshToken(
+        id=refresh_token_id,
+        user_id=user.id,
+        token_hash=hash_token(jwt_refresh_token),
+        expires_at=get_token_expiry(days=settings.refresh_token_expire_days),
+    )
+    db.add(refresh_token_record)
+    await db.commit()
+
+    return TokenResponse(
+        access_token=jwt_access_token,
+        refresh_token=jwt_refresh_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
+
+
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute")
 async def refresh_tokens(
-    request: RefreshTokenRequest,
+    request: Request,
+    body: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """
@@ -222,7 +316,7 @@ async def refresh_tokens(
     Returns new access and refresh tokens (token rotation).
     """
     # Decode refresh token
-    payload = decode_token(request.refresh_token)
+    payload = decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -239,7 +333,7 @@ async def refresh_tokens(
         )
 
     # Find refresh token in database
-    token_hash = hash_token(request.refresh_token)
+    token_hash = hash_token(body.refresh_token)
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.id == token_id,
@@ -502,3 +596,102 @@ async def list_shares(
         )
 
     return ShareListResponse(owned=owned_shares, received=received_shares)
+
+
+# ============================================
+# Admin User Management
+# ============================================
+
+
+@router.get("/users", response_model=list[UserListResponse])
+async def list_users(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[User]:
+    """
+    List all users (admin only).
+    """
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    return list(result.scalars().all())
+
+
+@router.patch("/users/{user_id}/approve", response_model=UserListResponse)
+async def approve_user(
+    user_id: uuid.UUID,
+    data: UserApprovalUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Approve or revoke a user's access (admin only).
+    """
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    # Find user
+    result = await db.execute(select(User).where(User.id == user_id))
+    target_user = result.scalar_one_or_none()
+
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    # Don't allow removing own approval
+    if target_user.id == user.id and not data.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot revoke your own access",
+        )
+
+    target_user.is_approved = data.is_approved
+    await db.commit()
+    await db.refresh(target_user)
+
+    return target_user
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Delete a user (admin only).
+    """
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    # Don't allow self-deletion
+    if user_id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete yourself",
+        )
+
+    # Find user
+    result = await db.execute(select(User).where(User.id == user_id))
+    target_user = result.scalar_one_or_none()
+
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    await db.delete(target_user)
+    await db.commit()

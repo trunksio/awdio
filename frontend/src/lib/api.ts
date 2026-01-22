@@ -962,6 +962,22 @@ export async function deletePresenterKBImage(
   );
 }
 
+export async function updatePresenterKBImage(
+  presenterId: string,
+  kbId: string,
+  imageId: string,
+  data: { title?: string | null; description?: string | null; associated_text?: string | null }
+): Promise<PresenterKBImage> {
+  return fetchAPI<PresenterKBImage>(
+    `/api/v1/presenters/${presenterId}/knowledge-bases/${kbId}/images/${imageId}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+}
+
 // ============================================
 // Awdio KB Images
 // ============================================
@@ -1016,4 +1032,351 @@ export async function deleteAwdioKBImage(
   );
 }
 
+export async function updateAwdioKBImage(
+  awdioId: string,
+  kbId: string,
+  imageId: string,
+  data: { title?: string | null; description?: string | null; associated_text?: string | null }
+): Promise<AwdioKBImage> {
+  return fetchAPI<AwdioKBImage>(
+    `/api/v1/awdios/${awdioId}/knowledge-bases/${kbId}/images/${imageId}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+// ============================================
+// Publishing
+// ============================================
+
+import type {
+  PublishValidationResponse,
+  PublishResponse,
+  EmbedCodeResponse,
+  EmbedAwdioFull,
+} from "./types";
+
+export async function validateSessionPublish(
+  awdioId: string,
+  sessionId: string
+): Promise<PublishValidationResponse> {
+  return fetchAPI<PublishValidationResponse>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/validate-publish`
+  );
+}
+
+export async function publishSession(
+  awdioId: string,
+  sessionId: string
+): Promise<PublishResponse> {
+  return fetchAPI<PublishResponse>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/publish`,
+    { method: "POST" }
+  );
+}
+
+export async function unpublishSession(
+  awdioId: string,
+  sessionId: string
+): Promise<PublishResponse> {
+  return fetchAPI<PublishResponse>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/unpublish`,
+    { method: "POST" }
+  );
+}
+
+export async function getSessionEmbedCode(
+  awdioId: string,
+  sessionId: string,
+  width?: number,
+  height?: number
+): Promise<EmbedCodeResponse> {
+  const params = new URLSearchParams();
+  if (width) params.append("width", width.toString());
+  if (height) params.append("height", height.toString());
+  const queryString = params.toString() ? `?${params.toString()}` : "";
+  return fetchAPI<EmbedCodeResponse>(
+    `/api/v1/awdios/${awdioId}/sessions/${sessionId}/embed-code${queryString}`
+  );
+}
+
+// ============================================
+// Embed API (public, no auth required)
+// ============================================
+
+export async function getEmbedAwdioSession(
+  awdioId: string,
+  sessionId: string
+): Promise<EmbedAwdioFull> {
+  // Use skipAuth=true for public embed endpoints
+  return fetchAPI<EmbedAwdioFull>(
+    `/api/v1/embed/awdios/${awdioId}/sessions/${sessionId}`,
+    undefined,
+    true // skipAuth
+  );
+}
+
 export { API_URL };
+
+// ============================================
+// Surveys
+// ============================================
+
+import type {
+  Survey,
+  SurveyWithQuestions,
+  SurveyQuestion,
+  SurveySubmission,
+  SurveyResults,
+  QuestionOption,
+} from "./types";
+
+export async function listSurveys(): Promise<Survey[]> {
+  return fetchAPI<Survey[]>("/api/v1/surveys");
+}
+
+export async function createSurvey(data: {
+  title: string;
+  description?: string;
+  is_anonymous?: boolean;
+  collect_pii_at_end?: boolean;
+  allow_voice_input?: boolean;
+  presenter_id?: string;
+}): Promise<Survey> {
+  return fetchAPI<Survey>("/api/v1/surveys", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getSurvey(id: string): Promise<SurveyWithQuestions> {
+  return fetchAPI<SurveyWithQuestions>(`/api/v1/surveys/${id}`);
+}
+
+export async function updateSurvey(
+  id: string,
+  data: {
+    title?: string;
+    description?: string;
+    is_anonymous?: boolean;
+    collect_pii_at_end?: boolean;
+    allow_voice_input?: boolean;
+    presenter_id?: string;
+    status?: string;
+    closes_at?: string;
+  }
+): Promise<Survey> {
+  return fetchAPI<Survey>(`/api/v1/surveys/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSurvey(id: string): Promise<void> {
+  await fetchAPI(`/api/v1/surveys/${id}`, { method: "DELETE" });
+}
+
+export async function publishSurvey(id: string): Promise<Survey> {
+  return fetchAPI<Survey>(`/api/v1/surveys/${id}/publish`, { method: "POST" });
+}
+
+export async function closeSurvey(id: string): Promise<Survey> {
+  return fetchAPI<Survey>(`/api/v1/surveys/${id}/close`, { method: "POST" });
+}
+
+// Survey Questions
+export async function createSurveyQuestion(
+  surveyId: string,
+  data: {
+    question_text: string;
+    description?: string;
+    question_type: string;
+    options?: QuestionOption[];
+    min_value?: number;
+    max_value?: number;
+    min_label?: string;
+    max_label?: string;
+    is_required?: boolean;
+    order_index?: number;
+  }
+): Promise<SurveyQuestion> {
+  return fetchAPI<SurveyQuestion>(`/api/v1/surveys/${surveyId}/questions`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateSurveyQuestion(
+  surveyId: string,
+  questionId: string,
+  data: {
+    question_text?: string;
+    description?: string;
+    question_type?: string;
+    options?: QuestionOption[];
+    min_value?: number;
+    max_value?: number;
+    min_label?: string;
+    max_label?: string;
+    is_required?: boolean;
+    order_index?: number;
+  }
+): Promise<SurveyQuestion> {
+  return fetchAPI<SurveyQuestion>(
+    `/api/v1/surveys/${surveyId}/questions/${questionId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }
+  );
+}
+
+export async function deleteSurveyQuestion(
+  surveyId: string,
+  questionId: string
+): Promise<void> {
+  await fetchAPI(`/api/v1/surveys/${surveyId}/questions/${questionId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function reorderSurveyQuestions(
+  surveyId: string,
+  questionIds: string[]
+): Promise<SurveyQuestion[]> {
+  return fetchAPI<SurveyQuestion[]>(
+    `/api/v1/surveys/${surveyId}/questions/reorder`,
+    {
+      method: "POST",
+      body: JSON.stringify({ question_ids: questionIds }),
+    }
+  );
+}
+
+// Survey Synthesis
+export interface SynthesisResponse {
+  survey_id: string;
+  synthesis_status: string;
+  questions_synthesized: number;
+  total_duration_ms: number;
+}
+
+export async function synthesizeSurvey(surveyId: string): Promise<SynthesisResponse> {
+  return fetchAPI<SynthesisResponse>(`/api/v1/surveys/${surveyId}/synthesize`, {
+    method: "POST",
+  });
+}
+
+export async function synthesizeSurveyQuestion(
+  surveyId: string,
+  questionId: string
+): Promise<SurveyQuestion> {
+  return fetchAPI<SurveyQuestion>(
+    `/api/v1/surveys/${surveyId}/questions/${questionId}/synthesize`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+// Survey Results
+export async function getSurveyResults(surveyId: string): Promise<SurveyResults> {
+  return fetchAPI<SurveyResults>(`/api/v1/surveys/${surveyId}/results`);
+}
+
+export function getSurveyExportUrl(surveyId: string): string {
+  const token = getAccessToken();
+  return `${API_URL}/api/v1/surveys/${surveyId}/export?token=${token}`;
+}
+
+// Public Survey Taking (no auth required)
+export async function getSurveyForTaking(id: string): Promise<SurveyWithQuestions> {
+  return fetchAPI<SurveyWithQuestions>(`/api/v1/surveys/take/${id}`, undefined, true);
+}
+
+export async function startSurveySubmission(
+  surveyId: string,
+  data: { listener_id?: string; source?: string }
+): Promise<SurveySubmission> {
+  return fetchAPI<SurveySubmission>(
+    `/api/v1/surveys/take/${surveyId}/start`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    true
+  );
+}
+
+export async function submitSurveyAnswer(
+  surveyId: string,
+  submissionId: string,
+  data: {
+    question_id: string;
+    answer_value: Record<string, unknown>;
+    voice_transcript?: string;
+  }
+): Promise<{ status: string }> {
+  return fetchAPI<{ status: string }>(
+    `/api/v1/surveys/take/${surveyId}/submissions/${submissionId}/answer`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    true
+  );
+}
+
+export async function completeSurveySubmission(
+  surveyId: string,
+  submissionId: string
+): Promise<{ status: string; collect_pii: boolean; submission_id: string }> {
+  return fetchAPI<{ status: string; collect_pii: boolean; submission_id: string }>(
+    `/api/v1/surveys/take/${surveyId}/submissions/${submissionId}/complete`,
+    { method: "POST" },
+    true
+  );
+}
+
+export async function submitSurveyPII(
+  surveyId: string,
+  submissionId: string,
+  data: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    company?: string;
+    additional?: Record<string, unknown>;
+  }
+): Promise<{ status: string }> {
+  return fetchAPI<{ status: string }>(
+    `/api/v1/surveys/take/${surveyId}/submissions/${submissionId}/pii`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    true
+  );
+}
+
+// ============================================
+// Generic API Request (for custom endpoints)
+// ============================================
+
+/**
+ * Generic API request function for custom endpoints.
+ * Handles authentication, token refresh, and error handling.
+ * @param endpoint - API endpoint (e.g., "/analytics/dashboard")
+ * @param options - Fetch options (method, body, etc.)
+ * @param skipAuth - Whether to skip authentication
+ */
+export async function apiRequest<T>(
+  endpoint: string,
+  options?: RequestInit,
+  skipAuth: boolean = false
+): Promise<T> {
+  return fetchAPI<T>(endpoint, options, skipAuth);
+}

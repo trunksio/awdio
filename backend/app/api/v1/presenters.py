@@ -23,6 +23,7 @@ from app.schemas.presenter import (
     PresenterCreate,
     PresenterDocumentResponse,
     PresenterKBImageResponse,
+    PresenterKBImageUpdate,
     PresenterKnowledgeBaseCreate,
     PresenterKnowledgeBaseResponse,
     PresenterResponse,
@@ -379,6 +380,45 @@ async def upload_presenter_kb_image(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put(
+    "/{presenter_id}/knowledge-bases/{kb_id}/images/{image_id}",
+    response_model=PresenterKBImageResponse,
+)
+async def update_presenter_kb_image(
+    presenter_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    image_id: uuid.UUID,
+    data: PresenterKBImageUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> PresenterKBImage:
+    """
+    Update a presenter KB image's metadata.
+
+    If associated_text changes, the embedding is automatically regenerated.
+    """
+    # Verify ownership
+    result = await db.execute(
+        select(PresenterKBImage).where(
+            PresenterKBImage.id == image_id,
+            PresenterKBImage.knowledge_base_id == kb_id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    processor = KBImageProcessor()
+    updated = await processor.update_presenter_image(
+        db=db,
+        image_id=image_id,
+        title=data.title,
+        description=data.description,
+        associated_text=data.associated_text,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return updated
 
 
 @router.delete(

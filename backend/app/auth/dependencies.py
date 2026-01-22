@@ -40,6 +40,10 @@ async def get_current_user_optional(
     return await get_user_by_id(db, user_id)
 
 
+# Alias for clarity in analytics endpoints
+get_optional_user = get_current_user_optional
+
+
 async def get_current_user(
     user: User | None = Depends(get_current_user_optional),
 ) -> User:

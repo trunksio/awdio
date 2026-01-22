@@ -13,6 +13,10 @@ import {
   updateNarrationSegment,
   synthesizeSegment,
   listSlides,
+  validateSessionPublish,
+  publishSession,
+  unpublishSession,
+  getSessionEmbedCode,
 } from "@/lib/api";
 import type {
   Awdio,
@@ -21,6 +25,8 @@ import type {
   NarrationSegment,
   SessionManifest,
   Slide,
+  EmbedCodeResponse,
+  PublishValidationResponse,
 } from "@/lib/types";
 
 export default function SessionDetailPage() {
@@ -43,6 +49,13 @@ export default function SessionDetailPage() {
   const [editContent, setEditContent] = useState("");
   const [savingSegment, setSavingSegment] = useState(false);
   const [synthesizingSegmentId, setSynthesizingSegmentId] = useState<string | null>(null);
+
+  // Publishing
+  const [publishing, setPublishing] = useState(false);
+  const [publishValidation, setPublishValidation] = useState<PublishValidationResponse | null>(null);
+  const [showEmbedModal, setShowEmbedModal] = useState(false);
+  const [embedCode, setEmbedCode] = useState<EmbedCodeResponse | null>(null);
+  const [embedCopied, setEmbedCopied] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -74,6 +87,14 @@ export default function SessionDetailPage() {
         setManifest(manifestData);
       } catch {
         setManifest(null);
+      }
+
+      // Check publish validation
+      try {
+        const validation = await validateSessionPublish(awdioId, sessionId);
+        setPublishValidation(validation);
+      } catch {
+        setPublishValidation(null);
       }
 
       setError(null);
@@ -183,6 +204,60 @@ export default function SessionDetailPage() {
     }
   }
 
+  async function handlePublish() {
+    try {
+      setPublishing(true);
+      setError(null);
+      await publishSession(awdioId, sessionId);
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to publish session");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleUnpublish() {
+    try {
+      setPublishing(true);
+      setError(null);
+      await unpublishSession(awdioId, sessionId);
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to unpublish session");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleShowEmbedCode() {
+    try {
+      setError(null);
+      const code = await getSessionEmbedCode(awdioId, sessionId);
+      setEmbedCode(code);
+      setShowEmbedModal(true);
+      setEmbedCopied(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to get embed code");
+    }
+  }
+
+  function handleCopyEmbedCode() {
+    if (embedCode) {
+      navigator.clipboard.writeText(embedCode.embed_code);
+      setEmbedCopied(true);
+      setTimeout(() => setEmbedCopied(false), 2000);
+    }
+  }
+
+  function handleCopyEmbedUrl() {
+    if (embedCode) {
+      navigator.clipboard.writeText(embedCode.embed_url);
+      setEmbedCopied(true);
+      setTimeout(() => setEmbedCopied(false), 2000);
+    }
+  }
+
   function formatDuration(ms: number): string {
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -221,7 +296,9 @@ export default function SessionDetailPage() {
         )}
         <p className="text-sm text-gray-500 mt-1">
           Status: <span className={`px-2 py-0.5 rounded text-xs ${
-            session.status === "synthesized"
+            session.status === "published"
+              ? "bg-purple-600/20 text-purple-400"
+              : session.status === "synthesized"
               ? "bg-green-600/20 text-green-400"
               : session.status === "scripted"
               ? "bg-blue-600/20 text-blue-400"
@@ -302,6 +379,67 @@ export default function SessionDetailPage() {
                     Watch Now
                   </Link>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Publishing */}
+          {manifest && (
+            <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+              <h2 className="text-xl font-semibold mb-4">Publishing</h2>
+
+              {session.status === "published" ? (
+                <>
+                  <div className="p-3 bg-purple-900/30 border border-purple-700 rounded-lg mb-4">
+                    <div className="flex items-center gap-2 text-purple-400 mb-1">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Published
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      This session is live and can be embedded on external sites.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleShowEmbedCode}
+                      className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-500 transition-colors"
+                    >
+                      Get Embed Code
+                    </button>
+                    <button
+                      onClick={handleUnpublish}
+                      disabled={publishing}
+                      className="w-full px-4 py-2 text-sm border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+                    >
+                      {publishing ? "Unpublishing..." : "Unpublish"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-400 mb-4">
+                    Publish this session to make it available for embedding on external websites.
+                  </p>
+                  {publishValidation && !publishValidation.valid && (
+                    <div className="p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg mb-4 text-sm">
+                      <div className="text-yellow-400 font-medium mb-1">Cannot publish yet:</div>
+                      <ul className="text-yellow-200/80 space-y-1">
+                        {publishValidation.errors.map((err, i) => (
+                          <li key={i}>• {err.message}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <button
+                    onClick={handlePublish}
+                    disabled={publishing || !publishValidation?.valid}
+                    className="w-full px-4 py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-500 transition-colors disabled:opacity-50"
+                  >
+                    {publishing ? "Publishing..." : "Publish Session"}
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -482,6 +620,87 @@ export default function SessionDetailPage() {
                 className="px-4 py-2 text-sm bg-white text-black font-medium rounded hover:bg-gray-200 disabled:opacity-50"
               >
                 {savingSegment ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Embed Code Modal */}
+      {showEmbedModal && embedCode && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Embed Code</h3>
+              <button
+                onClick={() => setShowEmbedModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4 space-y-6">
+              {/* Iframe Code */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium">Iframe Embed Code</label>
+                  <button
+                    onClick={handleCopyEmbedCode}
+                    className="text-xs px-2 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
+                  >
+                    {embedCopied ? "Copied!" : "Copy Code"}
+                  </button>
+                </div>
+                <pre className="p-3 bg-gray-800 border border-gray-700 rounded text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap">
+                  {embedCode.embed_code}
+                </pre>
+                <p className="text-xs text-gray-500 mt-2">
+                  Paste this code into your website&apos;s HTML to embed the presentation.
+                </p>
+              </div>
+
+              {/* Direct URL */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium">Direct URL</label>
+                  <button
+                    onClick={handleCopyEmbedUrl}
+                    className="text-xs px-2 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
+                  >
+                    {embedCopied ? "Copied!" : "Copy URL"}
+                  </button>
+                </div>
+                <div className="p-3 bg-gray-800 border border-gray-700 rounded text-sm">
+                  <a
+                    href={embedCode.embed_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 break-all"
+                  >
+                    {embedCode.embed_url}
+                  </a>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Share this link directly or open it to preview the embedded presentation.
+                </p>
+              </div>
+
+              {/* Size Info */}
+              <div className="p-3 bg-gray-800/50 rounded-lg text-sm text-gray-400">
+                <p>Default size: {embedCode.width} x {embedCode.height} pixels</p>
+                <p className="text-xs mt-1">
+                  You can customize the width and height attributes in the iframe code.
+                </p>
+              </div>
+            </div>
+            <div className="p-4 border-t border-gray-800 flex justify-end">
+              <button
+                onClick={() => setShowEmbedModal(false)}
+                className="px-4 py-2 text-sm bg-white text-black font-medium rounded hover:bg-gray-200"
+              >
+                Done
               </button>
             </div>
           </div>

@@ -6,6 +6,7 @@ export interface User {
   avatar_url: string | null;
   oauth_provider: string;
   is_admin: boolean;
+  is_approved: boolean;
   created_at: string;
   last_login_at: string | null;
 }
@@ -312,4 +313,150 @@ export interface PresenterDocument {
   file_type: string | null;
   processed: boolean;
   created_at: string;
+}
+
+// Embed types (for public, read-only access)
+export interface EmbedPresenter {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+}
+
+export interface EmbedAwdio {
+  id: string;
+  title: string;
+  description: string | null;
+  presenter: EmbedPresenter | null;
+}
+
+export interface EmbedSession {
+  id: string;
+  title: string;
+  description: string | null;
+}
+
+export interface EmbedManifest {
+  id: string;
+  session_id: string;
+  total_duration_ms: number | null;
+  segment_count: number | null;
+  manifest: {
+    segments: SessionManifestSegment[];
+    total_duration_ms: number;
+    generated_at: string;
+  };
+}
+
+export interface EmbedAwdioFull {
+  awdio: EmbedAwdio;
+  session: EmbedSession;
+  manifest: EmbedManifest;
+}
+
+// Publishing types
+export interface PublishValidationError {
+  field: string;
+  message: string;
+}
+
+export interface PublishValidationResponse {
+  valid: boolean;
+  errors: PublishValidationError[];
+}
+
+export interface PublishResponse {
+  success: boolean;
+  message: string;
+  published_at: string | null;
+}
+
+export interface EmbedCodeResponse {
+  embed_code: string;
+  embed_url: string;
+  width: number;
+  height: number;
+}
+
+// Survey types
+export interface QuestionOption {
+  value: string;
+  label: string;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  survey_id: string;
+  question_text: string;
+  description: string | null;
+  question_type: "single_choice" | "multiple_choice" | "rating" | "scale" | "open_text" | "true_false";
+  options: QuestionOption[] | null;
+  min_value: number | null;
+  max_value: number | null;
+  min_label: string | null;
+  max_label: string | null;
+  audio_path: string | null;
+  audio_duration_ms: number | null;
+  is_required: boolean;
+  order_index: number;
+}
+
+export interface Survey {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  is_anonymous: boolean;
+  collect_pii_at_end: boolean;
+  allow_voice_input: boolean;
+  presenter_id: string | null;
+  status: "draft" | "published" | "closed";
+  synthesis_status: "pending" | "synthesizing" | "synthesized" | "error" | null;
+  published_at: string | null;
+  closes_at: string | null;
+  created_at: string;
+  updated_at: string;
+  question_count: number;
+  submission_count: number;
+}
+
+export interface SurveyWithQuestions extends Survey {
+  questions: SurveyQuestion[];
+}
+
+export interface SurveySubmission {
+  id: string;
+  survey_id: string;
+  anonymous_id: string;
+  status: "in_progress" | "completed" | "abandoned";
+  started_at: string;
+  completed_at: string | null;
+  source: "direct" | "embed";
+}
+
+export interface SurveyAnswer {
+  question_id: string;
+  answer_value: Record<string, unknown>;
+  voice_transcript?: string;
+}
+
+export interface SurveyResults {
+  survey_id: string;
+  title: string;
+  total_submissions: number;
+  completed_submissions: number;
+  completion_rate: number;
+  questions: SurveyQuestionResult[];
+}
+
+export interface SurveyQuestionResult {
+  question_id: string;
+  question_text: string;
+  question_type: string;
+  total_responses: number;
+  option_counts?: Record<string, number>;
+  average?: number;
+  min?: number;
+  max?: number;
+  distribution?: Record<number, number>;
+  recent_responses?: string[];
 }

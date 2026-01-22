@@ -1,4 +1,9 @@
 from app.auth.models import RefreshToken, ResourceShare, User
+from app.models.analytics import (
+    AnalyticsDailySummary,
+    AnalyticsEvent,
+    AnalyticsSession,
+)
 from app.models.awdio import (
     Awdio,
     AwdioChunk,
@@ -21,6 +26,7 @@ from app.models.presenter import (
     PresenterDocument,
     PresenterKnowledgeBase,
 )
+from app.models.survey import Survey, SurveyAnswer, SurveyQuestion, SurveySubmission
 from app.models.voice import PodcastVoice, Voice
 
 __all__ = [
@@ -28,6 +34,10 @@ __all__ = [
     "User",
     "RefreshToken",
     "ResourceShare",
+    # Analytics models
+    "AnalyticsEvent",
+    "AnalyticsSession",
+    "AnalyticsDailySummary",
     # Awdio models
     "Awdio",
     "SlideDeck",
@@ -60,4 +70,9 @@ __all__ = [
     "PodcastPresenter",
     # Listener models
     "Listener",
+    # Survey models
+    "Survey",
+    "SurveyQuestion",
+    "SurveySubmission",
+    "SurveyAnswer",
 ]

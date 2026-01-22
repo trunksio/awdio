@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import audio, awdios, health, knowledge_bases, listeners, podcasts, presenters, voices
+from app.api.v1 import analytics, audio, awdios, embed, health, knowledge_bases, listeners, podcasts, presenters, surveys, voices
 
 api_router = APIRouter()
 
@@ -13,3 +13,6 @@ api_router.include_router(presenters.router)
 api_router.include_router(presenters.podcast_presenters_router)
 api_router.include_router(listeners.router)
 api_router.include_router(awdios.router)
+api_router.include_router(embed.router)
+api_router.include_router(analytics.router)
+api_router.include_router(surveys.router)

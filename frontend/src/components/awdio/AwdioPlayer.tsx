@@ -5,6 +5,7 @@ import type { SessionManifest } from "@/lib/types";
 import { useSlideSequencer } from "@/hooks/useSlideSequencer";
 import { SlideViewer, SlideNavigator } from "./SlideViewer";
 import { AwdioVoiceInterrupt, type SlideSelectEvent, type VisualSelectEvent } from "./AwdioVoiceInterrupt";
+import { createTracker } from "@/lib/analytics";
 
 interface AwdioPlayerProps {
   manifest: SessionManifest;
@@ -45,6 +46,16 @@ export function AwdioPlayer({
   const [qaVisualType, setQaVisualType] = useState<"slide" | "kb_image" | null>(null);
   const [qaVisualSource, setQaVisualSource] = useState<"deck" | "presenter_kb" | "awdio_kb" | null>(null);
   const wasPlayingRef = useRef(false);
+  const startTimeRef = useRef<number>(Date.now());
+  const lastTrackedSegmentRef = useRef<number>(-1);
+
+  // Analytics tracker
+  const tracker = useMemo(() => {
+    if (awdioId) {
+      return createTracker("awdio", awdioId, sessionId);
+    }
+    return null;
+  }, [awdioId, sessionId]);
 
   const {
     state,
@@ -66,8 +77,31 @@ export function AwdioPlayer({
     manifest,
     audioBaseUrl,
     slideBaseUrl,
-    onComplete,
+    onComplete: () => {
+      // Track completion
+      if (tracker) {
+        const durationMs = Date.now() - startTimeRef.current;
+        tracker.viewComplete(durationMs);
+      }
+      onComplete?.();
+    },
   });
+
+  // Track view start on mount
+  useEffect(() => {
+    if (tracker) {
+      startTimeRef.current = Date.now();
+      tracker.viewStart(segments.length);
+    }
+  }, [tracker, segments.length]);
+
+  // Track segment views
+  useEffect(() => {
+    if (tracker && state.currentSegmentIndex !== lastTrackedSegmentRef.current) {
+      lastTrackedSegmentRef.current = state.currentSegmentIndex;
+      tracker.segmentView(state.currentSegmentIndex);
+    }
+  }, [tracker, state.currentSegmentIndex]);
 
   // Get unique slides for navigator
   const uniqueSlides = useMemo(() => {
@@ -219,7 +253,9 @@ export function AwdioPlayer({
     }
     setIsInterrupted(true);
     setShowControls(true);
-  }, [pause]);
+    // Track Q&A start
+    tracker?.qaStart();
+  }, [pause, tracker]);
 
   const handleInterruptEnd = useCallback(() => {
     setIsInterrupted(false);
@@ -229,7 +265,9 @@ export function AwdioPlayer({
     if (wasPlayingRef.current) {
       play();
     }
-  }, [play]);
+    // Track Q&A complete
+    tracker?.qaComplete();
+  }, [play, tracker]);
 
   const handleSlideSelect = useCallback((event: SlideSelectEvent) => {
     // Show the selected slide during Q&A (legacy handler)

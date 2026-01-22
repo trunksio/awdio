@@ -25,9 +25,11 @@ import {
   listAwdioKBImages,
   uploadAwdioKBImage,
   deleteAwdioKBImage,
+  updateAwdioKBImage,
   API_URL,
 } from "@/lib/api";
 import type { Awdio, AwdioKBImage, AwdioKnowledgeBase, AwdioSession, Presenter, Slide, SlideDeck } from "@/lib/types";
+import { ResourceAnalytics } from "@/components/analytics";
 
 export default function AwdioDetailPage() {
   const params = useParams();
@@ -84,6 +86,13 @@ export default function AwdioDetailPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
+  // Edit KB image
+  const [editingImage, setEditingImage] = useState<AwdioKBImage | null>(null);
+  const [editImageTitle, setEditImageTitle] = useState("");
+  const [editImageDescription, setEditImageDescription] = useState("");
+  const [editImageAssociatedText, setEditImageAssociatedText] = useState("");
+  const [savingImage, setSavingImage] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -133,6 +142,13 @@ export default function AwdioDetailPage() {
       setSlides([]);
     }
   }, [selectedDeck, loadSlides]);
+
+  // Auto-select first deck if there's only one and none selected
+  useEffect(() => {
+    if (!selectedDeck && slideDecks.length > 0) {
+      setSelectedDeck(slideDecks[0]);
+    }
+  }, [slideDecks, selectedDeck]);
 
   useEffect(() => {
     if (selectedKB) {
@@ -454,6 +470,41 @@ export default function AwdioDetailPage() {
     }
   }
 
+  function openImageEditor(image: AwdioKBImage) {
+    setEditingImage(image);
+    setEditImageTitle(image.title || "");
+    setEditImageDescription(image.description || "");
+    setEditImageAssociatedText(image.associated_text);
+  }
+
+  function closeImageEditor() {
+    setEditingImage(null);
+    setEditImageTitle("");
+    setEditImageDescription("");
+    setEditImageAssociatedText("");
+  }
+
+  async function handleSaveImage() {
+    if (!editingImage || !selectedKB) return;
+
+    try {
+      setSavingImage(true);
+      setError(null);
+      await updateAwdioKBImage(awdioId, selectedKB, editingImage.id, {
+        title: editImageTitle.trim() || null,
+        description: editImageDescription.trim() || null,
+        associated_text: editImageAssociatedText.trim() || null,
+      });
+      const images = await listAwdioKBImages(awdioId, selectedKB);
+      setKBImages(images);
+      closeImageEditor();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save image");
+    } finally {
+      setSavingImage(false);
+    }
+  }
+
   function getDeckName(deckId: string | null): string {
     if (!deckId) return "No deck";
     const deck = slideDecks.find((d) => d.id === deckId);
@@ -516,6 +567,11 @@ export default function AwdioDetailPage() {
           {error}
         </div>
       )}
+
+      {/* Analytics */}
+      <div className="mb-8">
+        <ResourceAnalytics resourceType="awdio" resourceId={awdioId} />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Slide Decks Column */}
@@ -873,7 +929,9 @@ export default function AwdioDetailPage() {
                     <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
                       <span>Deck: {getDeckName(session.slide_deck_id)}</span>
                       <span className={`px-2 py-0.5 rounded text-xs ${
-                        session.status === "synthesized"
+                        session.status === "published"
+                          ? "bg-purple-600/20 text-purple-400"
+                          : session.status === "synthesized"
                           ? "bg-green-600/20 text-green-400"
                           : session.status === "scripted"
                           ? "bg-blue-600/20 text-blue-400"
@@ -1084,12 +1142,20 @@ export default function AwdioDetailPage() {
                             <p className="text-xs text-gray-400 mt-1 line-clamp-2">
                               {image.associated_text}
                             </p>
-                            <button
-                              onClick={() => handleDeleteImage(image.id)}
-                              className="mt-2 text-red-400 hover:text-red-300 text-xs"
-                            >
-                              Delete
-                            </button>
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => openImageEditor(image)}
+                                className="text-blue-400 hover:text-blue-300 text-xs"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteImage(image.id)}
+                                className="text-red-400 hover:text-red-300 text-xs"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1178,6 +1244,116 @@ export default function AwdioDetailPage() {
                 className="px-4 py-2 text-sm bg-white text-black font-medium rounded hover:bg-gray-200 disabled:opacity-50"
               >
                 {savingSlide ? "Saving..." : "Save Notes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit KB Image Modal */}
+      {editingImage && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                Edit KB Image
+              </h3>
+              <button
+                onClick={closeImageEditor}
+                className="text-gray-400 hover:text-white"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4 space-y-4 overflow-y-auto max-h-[60vh]">
+              {/* Image preview */}
+              <div className="flex gap-4">
+                <div className="w-48 flex-shrink-0">
+                  {editingImage.thumbnail_path ? (
+                    <img
+                      src={`${API_URL}/api/v1/audio/${editingImage.thumbnail_path}`}
+                      alt={editingImage.title || editingImage.filename}
+                      className="w-full rounded border border-gray-700"
+                    />
+                  ) : (
+                    <div className="w-full aspect-video bg-gray-700 rounded flex items-center justify-center">
+                      <span className="text-gray-500 text-sm">No preview</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 text-sm">
+                  <div className="font-medium mb-1">
+                    {editingImage.filename}
+                  </div>
+                  <p className="text-gray-400 text-xs">
+                    Changes to associated text will regenerate the embedding for semantic search.
+                  </p>
+                </div>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={editImageTitle}
+                  onChange={(e) => setEditImageTitle(e.target.value)}
+                  placeholder="Optional title"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  value={editImageDescription}
+                  onChange={(e) => setEditImageDescription(e.target.value)}
+                  placeholder="Optional description"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm"
+                />
+              </div>
+
+              {/* Associated Text */}
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Associated Text
+                  <span className="text-gray-400 font-normal ml-2">
+                    (Used for semantic search - when should this image be shown?)
+                  </span>
+                </label>
+                <textarea
+                  value={editImageAssociatedText}
+                  onChange={(e) => setEditImageAssociatedText(e.target.value)}
+                  placeholder="Describe when this image should be shown during Q&A..."
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm min-h-[150px] resize-y"
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Tip: Include keywords and context that would match relevant questions.
+                </p>
+              </div>
+            </div>
+            <div className="p-4 border-t border-gray-800 flex justify-end gap-2">
+              <button
+                onClick={closeImageEditor}
+                className="px-4 py-2 text-sm border border-gray-600 rounded hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveImage}
+                disabled={savingImage || !editImageAssociatedText.trim()}
+                className="px-4 py-2 text-sm bg-white text-black font-medium rounded hover:bg-gray-200 disabled:opacity-50"
+              >
+                {savingImage ? "Saving..." : "Save"}
               </button>
             </div>
           </div>

@@ -10,6 +10,7 @@ import {
   getPodcast,
   getPodcastVoiceAssignments,
   getScript,
+  listPodcastPresenters,
   listVoices,
   synthesizeEpisode,
 } from "@/lib/api";
@@ -17,6 +18,7 @@ import type {
   Episode,
   EpisodeManifest,
   Podcast,
+  PodcastPresenter,
   Script,
   SpeakerConfig,
   Voice,
@@ -33,17 +35,16 @@ export default function EpisodeDetailPage() {
   const [script, setScript] = useState<Script | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceAssignments, setVoiceAssignments] = useState<VoiceAssignment[]>([]);
+  const [podcastPresenters, setPodcastPresenters] = useState<PodcastPresenter[]>([]);
   const [manifest, setManifest] = useState<EpisodeManifest | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [synthesizing, setSynthesizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [speakersInitialized, setSpeakersInitialized] = useState(false);
 
   // Script generation config
-  const [speakers, setSpeakers] = useState<SpeakerConfig[]>([
-    { name: "Alice", role: "host", description: "Friendly, curious host" },
-    { name: "Bob", role: "expert", description: "Knowledgeable co-host" },
-  ]);
+  const [speakers, setSpeakers] = useState<SpeakerConfig[]>([]);
   const [duration, setDuration] = useState(5);
   const [tone, setTone] = useState("conversational and engaging");
   const [synthesisSpeed, setSynthesisSpeed] = useState(1.0);
@@ -51,16 +52,18 @@ export default function EpisodeDetailPage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [podcastData, episodeData, voicesData, assignmentsData] = await Promise.all([
+      const [podcastData, episodeData, voicesData, assignmentsData, presentersData] = await Promise.all([
         getPodcast(podcastId),
         getEpisode(podcastId, episodeId),
         listVoices(),
         getPodcastVoiceAssignments(podcastId),
+        listPodcastPresenters(podcastId),
       ]);
       setPodcast(podcastData);
       setEpisode(episodeData);
       setVoices(voicesData);
       setVoiceAssignments(assignmentsData);
+      setPodcastPresenters(presentersData);
 
       // Try to load existing script
       try {
@@ -91,6 +94,26 @@ export default function EpisodeDetailPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Initialize speakers from podcast presenters
+  useEffect(() => {
+    if (!speakersInitialized && podcastPresenters.length > 0) {
+      const initialSpeakers: SpeakerConfig[] = podcastPresenters.map((pp) => ({
+        name: pp.display_name || pp.presenter?.name || "Speaker",
+        role: pp.role,
+        description: pp.presenter?.bio || "",
+      }));
+      setSpeakers(initialSpeakers);
+      setSpeakersInitialized(true);
+    } else if (!speakersInitialized && podcastPresenters.length === 0 && !loading) {
+      // Fallback to defaults if no presenters configured
+      setSpeakers([
+        { name: "Host", role: "host", description: "Friendly, curious host" },
+        { name: "Expert", role: "expert", description: "Knowledgeable co-host" },
+      ]);
+      setSpeakersInitialized(true);
+    }
+  }, [podcastPresenters, speakersInitialized, loading]);
 
   async function handleGenerateScript() {
     try {
@@ -196,17 +219,55 @@ export default function EpisodeDetailPage() {
               <div>
                 <label className="block text-sm text-gray-400 mb-2">
                   Speakers
+                  {podcastPresenters.length > 0 && (
+                    <span className="text-xs text-gray-500 ml-2">
+                      (from podcast presenters)
+                    </span>
+                  )}
                 </label>
                 {speakers.map((speaker, i) => (
                   <div key={i} className="mb-3 p-3 bg-gray-800 rounded-lg">
                     <div className="flex gap-2 mb-2">
-                      <input
-                        type="text"
-                        value={speaker.name}
-                        onChange={(e) => updateSpeaker(i, "name", e.target.value)}
-                        placeholder="Name"
-                        className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm"
-                      />
+                      {podcastPresenters.length > 0 ? (
+                        <select
+                          value={speaker.name}
+                          onChange={(e) => {
+                            const selectedPresenter = podcastPresenters.find(
+                              (pp) => (pp.display_name || pp.presenter?.name) === e.target.value
+                            );
+                            if (selectedPresenter) {
+                              const updated = [...speakers];
+                              updated[i] = {
+                                name: e.target.value,
+                                role: selectedPresenter.role,
+                                description: selectedPresenter.presenter?.bio || "",
+                              };
+                              setSpeakers(updated);
+                            } else {
+                              updateSpeaker(i, "name", e.target.value);
+                            }
+                          }}
+                          className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm"
+                        >
+                          <option value="">Select presenter...</option>
+                          {podcastPresenters.map((pp) => (
+                            <option
+                              key={pp.id}
+                              value={pp.display_name || pp.presenter?.name || ""}
+                            >
+                              {pp.display_name || pp.presenter?.name} ({pp.role})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={speaker.name}
+                          onChange={(e) => updateSpeaker(i, "name", e.target.value)}
+                          placeholder="Name"
+                          className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm"
+                        />
+                      )}
                       <input
                         type="text"
                         value={speaker.role}
@@ -232,12 +293,22 @@ export default function EpisodeDetailPage() {
                     />
                   </div>
                 ))}
-                <button
-                  onClick={addSpeaker}
-                  className="text-sm text-gray-400 hover:text-white"
-                >
-                  + Add speaker
-                </button>
+                {podcastPresenters.length === 0 && (
+                  <button
+                    onClick={addSpeaker}
+                    className="text-sm text-gray-400 hover:text-white"
+                  >
+                    + Add speaker
+                  </button>
+                )}
+                {podcastPresenters.length > 0 && speakers.length < podcastPresenters.length && (
+                  <button
+                    onClick={addSpeaker}
+                    className="text-sm text-gray-400 hover:text-white"
+                  >
+                    + Add another presenter
+                  </button>
+                )}
               </div>
 
               <div>

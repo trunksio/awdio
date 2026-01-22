@@ -94,6 +94,65 @@ function AuthRequired({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminNav() {
+  const { user } = useAuth();
+
+  return (
+    <nav className="border-b border-gray-800 bg-gray-900/50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between h-16">
+          <div className="flex items-center gap-8">
+            <Link href="/" className="text-xl font-bold">
+              Awdio
+            </Link>
+            <Link
+              href="/admin"
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              Podcasts
+            </Link>
+            <Link
+              href="/admin/awdios"
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              Awdios
+            </Link>
+            <Link
+              href="/admin/presenters"
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              Presenters
+            </Link>
+            <Link
+              href="/admin/surveys"
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              Surveys
+            </Link>
+            <Link
+              href="/admin/analytics"
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              Analytics
+            </Link>
+            {user?.is_admin && (
+              <Link
+                href="/admin/users"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                Users
+              </Link>
+            )}
+          </div>
+          <div className="flex items-center">
+            <UserMenu />
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
 export default function AdminLayout({
   children,
 }: {
@@ -102,38 +161,7 @@ export default function AdminLayout({
   return (
     <AuthRequired>
       <div className="min-h-screen bg-background">
-        <nav className="border-b border-gray-800 bg-gray-900/50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16">
-              <div className="flex items-center gap-8">
-                <Link href="/" className="text-xl font-bold">
-                  Awdio
-                </Link>
-                <Link
-                  href="/admin"
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  Podcasts
-                </Link>
-                <Link
-                  href="/admin/awdios"
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  Awdios
-                </Link>
-                <Link
-                  href="/admin/presenters"
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  Presenters
-                </Link>
-              </div>
-              <div className="flex items-center">
-                <UserMenu />
-              </div>
-            </div>
-          </div>
-        </nav>
+        <AdminNav />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {children}
         </main>

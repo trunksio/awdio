@@ -215,3 +215,33 @@ class AwdioKBImageResponse(BaseModel):
     associated_text: str
     image_metadata: dict
     created_at: datetime
+
+
+class AwdioKBImageUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    associated_text: str | None = None
+
+
+# Publishing schemas
+class PublishValidationError(BaseModel):
+    field: str
+    message: str
+
+
+class PublishValidationResponse(BaseModel):
+    valid: bool
+    errors: list[PublishValidationError] = []
+
+
+class PublishResponse(BaseModel):
+    success: bool
+    message: str
+    published_at: datetime | None = None
+
+
+class EmbedCodeResponse(BaseModel):
+    embed_code: str
+    embed_url: str
+    width: int = 800
+    height: int = 600

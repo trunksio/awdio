@@ -77,6 +77,12 @@ class PresenterKBImageResponse(BaseModel):
     created_at: datetime
 
 
+class PresenterKBImageUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    associated_text: str | None = None
+
+
 # PodcastPresenter schemas
 class PodcastPresenterCreate(BaseModel):
     presenter_id: uuid.UUID

@@ -119,6 +119,18 @@ class StorageService:
         content_type = f"audio/{format}"
         return await self.upload_file(audio_content, object_name, content_type)
 
+    async def upload_survey_audio(
+        self,
+        audio_content: bytes,
+        survey_id: uuid.UUID,
+        question_id: uuid.UUID,
+        format: str = "wav",
+    ) -> str:
+        """Upload a survey question audio file."""
+        object_name = f"surveys/{survey_id}/questions/{question_id}.{format}"
+        content_type = f"audio/{format}"
+        return await self.upload_file(audio_content, object_name, content_type)
+
     async def upload_awdio_document(
         self,
         file_content: bytes,

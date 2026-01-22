@@ -25,13 +25,18 @@ from app.schemas.awdio import (
     AwdioCreate,
     AwdioDocumentResponse,
     AwdioKBImageResponse,
+    AwdioKBImageUpdate,
     AwdioKnowledgeBaseCreate,
     AwdioKnowledgeBaseResponse,
     AwdioResponse,
     AwdioUpdate,
+    EmbedCodeResponse,
     NarrationScriptResponse,
     NarrationSegmentResponse,
     NarrationSegmentUpdate,
+    PublishResponse,
+    PublishValidationError,
+    PublishValidationResponse,
     SessionCreate,
     SessionManifestResponse,
     SessionResponse,
@@ -41,6 +46,7 @@ from app.schemas.awdio import (
     SlideResponse,
     SlideUpdate,
 )
+from app.config import settings
 from app.services.kb_image_processor import KBImageProcessor
 from app.services.storage_service import StorageService
 
@@ -472,6 +478,8 @@ async def update_slide(
         slide.description = data.description
     if data.keywords is not None:
         slide.keywords = data.keywords
+    if data.speaker_notes is not None:
+        slide.speaker_notes = data.speaker_notes
 
     await db.commit()
     await db.refresh(slide)
@@ -805,6 +813,195 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="Session not found")
     await db.delete(session)
     await db.commit()
+
+
+# ============================================
+# Publishing & Embedding
+# ============================================
+
+
+@router.get(
+    "/{awdio_id}/sessions/{session_id}/validate-publish",
+    response_model=PublishValidationResponse,
+)
+async def validate_session_publish(
+    awdio_id: uuid.UUID,
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> PublishValidationResponse:
+    """Validate if a session can be published."""
+    errors: list[PublishValidationError] = []
+
+    # Get session
+    result = await db.execute(
+        select(AwdioSession).where(
+            AwdioSession.id == session_id, AwdioSession.awdio_id == awdio_id
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Check if session has been synthesized
+    if session.status not in ("synthesized", "published"):
+        errors.append(
+            PublishValidationError(
+                field="status",
+                message=f"Session must be synthesized before publishing (current: {session.status})",
+            )
+        )
+
+    # Check if manifest exists
+    manifest_result = await db.execute(
+        select(SessionManifest).where(SessionManifest.session_id == session_id)
+    )
+    manifest = manifest_result.scalar_one_or_none()
+    if not manifest:
+        errors.append(
+            PublishValidationError(
+                field="manifest",
+                message="Session must have a manifest (synthesize first)",
+            )
+        )
+    elif not manifest.manifest.get("segments"):
+        errors.append(
+            PublishValidationError(
+                field="manifest.segments",
+                message="Manifest must have at least one segment",
+            )
+        )
+
+    return PublishValidationResponse(valid=len(errors) == 0, errors=errors)
+
+
+@router.post(
+    "/{awdio_id}/sessions/{session_id}/publish",
+    response_model=PublishResponse,
+)
+async def publish_session(
+    awdio_id: uuid.UUID,
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> PublishResponse:
+    """Publish a session, making it available for embedding."""
+    from datetime import datetime, timezone
+
+    # Validate first
+    validation = await validate_session_publish(awdio_id, session_id, db)
+    if not validation.valid:
+        error_msgs = "; ".join(e.message for e in validation.errors)
+        raise HTTPException(status_code=400, detail=f"Cannot publish: {error_msgs}")
+
+    # Get session
+    result = await db.execute(
+        select(AwdioSession).where(
+            AwdioSession.id == session_id, AwdioSession.awdio_id == awdio_id
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Update session status
+    session.status = "published"
+    published_at = datetime.now(timezone.utc)
+
+    # Also update parent awdio status if it's in draft
+    awdio_result = await db.execute(select(Awdio).where(Awdio.id == awdio_id))
+    awdio = awdio_result.scalar_one()
+    if awdio.status == "draft":
+        awdio.status = "published"
+
+    await db.commit()
+
+    return PublishResponse(
+        success=True,
+        message=f"Session '{session.title}' published successfully",
+        published_at=published_at,
+    )
+
+
+@router.post(
+    "/{awdio_id}/sessions/{session_id}/unpublish",
+    response_model=PublishResponse,
+)
+async def unpublish_session(
+    awdio_id: uuid.UUID,
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> PublishResponse:
+    """Unpublish a session, removing it from public access."""
+    # Get session
+    result = await db.execute(
+        select(AwdioSession).where(
+            AwdioSession.id == session_id, AwdioSession.awdio_id == awdio_id
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != "published":
+        raise HTTPException(status_code=400, detail="Session is not published")
+
+    # Revert to synthesized status
+    session.status = "synthesized"
+    await db.commit()
+
+    return PublishResponse(
+        success=True,
+        message=f"Session '{session.title}' unpublished",
+    )
+
+
+@router.get(
+    "/{awdio_id}/sessions/{session_id}/embed-code",
+    response_model=EmbedCodeResponse,
+)
+async def get_session_embed_code(
+    awdio_id: uuid.UUID,
+    session_id: uuid.UUID,
+    width: int = 800,
+    height: int = 600,
+    db: AsyncSession = Depends(get_db),
+) -> EmbedCodeResponse:
+    """Get embed code for a session. Session must be published."""
+    # Get session
+    result = await db.execute(
+        select(AwdioSession).where(
+            AwdioSession.id == session_id, AwdioSession.awdio_id == awdio_id
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Session must be published to generate embed code",
+        )
+
+    # Generate embed URL
+    base_url = settings.frontend_url.rstrip("/")
+    embed_url = f"{base_url}/embed/awdio/{awdio_id}/watch/{session_id}"
+
+    # Generate iframe code
+    embed_code = f'''<iframe
+  src="{embed_url}"
+  width="{width}"
+  height="{height}"
+  frameborder="0"
+  allow="autoplay; fullscreen"
+  allowfullscreen
+></iframe>'''
+
+    return EmbedCodeResponse(
+        embed_code=embed_code,
+        embed_url=embed_url,
+        width=width,
+        height=height,
+    )
 
 
 @router.get(
@@ -1653,6 +1850,48 @@ async def upload_awdio_kb_image(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put(
+    "/{awdio_id}/knowledge-bases/{kb_id}/images/{image_id}",
+    response_model=AwdioKBImageResponse,
+)
+async def update_awdio_kb_image(
+    awdio_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    image_id: uuid.UUID,
+    data: AwdioKBImageUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> AwdioKBImage:
+    """
+    Update an awdio KB image's metadata.
+
+    If associated_text changes, the embedding will be regenerated automatically.
+    """
+    # Verify ownership
+    result = await db.execute(
+        select(AwdioKBImage)
+        .join(AwdioKnowledgeBase)
+        .where(
+            AwdioKBImage.id == image_id,
+            AwdioKBImage.knowledge_base_id == kb_id,
+            AwdioKnowledgeBase.awdio_id == awdio_id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    processor = KBImageProcessor()
+    updated = await processor.update_awdio_image(
+        db,
+        image_id,
+        title=data.title,
+        description=data.description,
+        associated_text=data.associated_text,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return updated
 
 
 @router.delete(

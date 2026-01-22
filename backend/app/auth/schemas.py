@@ -20,6 +20,30 @@ class UserResponse(UserBase):
     id: UUID
     oauth_provider: str
     is_admin: bool
+    is_approved: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserApprovalUpdate(BaseModel):
+    """Update user approval status."""
+
+    is_approved: bool
+
+
+class UserListResponse(BaseModel):
+    """List of users for admin."""
+
+    id: UUID
+    email: str
+    name: str
+    avatar_url: str | None = None
+    oauth_provider: str
+    is_admin: bool
+    is_approved: bool
     created_at: datetime
     last_login_at: datetime | None = None
 
@@ -81,3 +105,9 @@ class OAuthLoginResponse(BaseModel):
 
     authorization_url: str
     state: str
+
+
+class AuthCodeExchange(BaseModel):
+    """Exchange auth code for tokens."""
+
+    code: str

@@ -26,8 +26,9 @@ class User(Base):
     oauth_provider: Mapped[str] = mapped_column(String(50), nullable=False)
     oauth_id: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Role
+    # Role and approval
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Extensible metadata
     user_metadata: Mapped[dict] = mapped_column(
@@ -58,6 +59,12 @@ class User(Base):
         back_populates="shared_with",
         foreign_keys="ResourceShare.shared_with_id",
         cascade="all, delete-orphan",
+    )
+    surveys: Mapped[list["Survey"]] = relationship(
+        "Survey", back_populates="owner", cascade="all, delete-orphan"
+    )
+    survey_submissions: Mapped[list["SurveySubmission"]] = relationship(
+        "SurveySubmission", back_populates="user"
     )
 
     __table_args__ = (

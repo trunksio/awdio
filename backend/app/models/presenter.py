@@ -55,6 +55,9 @@ class Presenter(Base):
     podcast_assignments: Mapped[list["PodcastPresenter"]] = relationship(
         "PodcastPresenter", back_populates="presenter", cascade="all, delete-orphan"
     )
+    surveys: Mapped[list["Survey"]] = relationship(
+        "Survey", back_populates="presenter"
+    )
 
 
 class PresenterKnowledgeBase(Base):

@@ -353,3 +353,69 @@ class KBImageProcessor:
             .order_by(AwdioKBImage.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def update_presenter_image(
+        self,
+        db: AsyncSession,
+        image_id: uuid.UUID,
+        title: str | None = None,
+        description: str | None = None,
+        associated_text: str | None = None,
+    ) -> PresenterKBImage | None:
+        """
+        Update a presenter KB image's metadata.
+
+        If associated_text changes, regenerates the embedding.
+
+        Returns:
+            The updated PresenterKBImage record, or None if not found
+        """
+        image = await db.get(PresenterKBImage, image_id)
+        if not image:
+            return None
+
+        if title is not None:
+            image.title = title
+        if description is not None:
+            image.description = description
+        if associated_text is not None and associated_text != image.associated_text:
+            image.associated_text = associated_text
+            # Regenerate embedding when associated_text changes
+            image.embedding = await self.embedding_service.embed_text(associated_text)
+
+        await db.commit()
+        await db.refresh(image)
+        return image
+
+    async def update_awdio_image(
+        self,
+        db: AsyncSession,
+        image_id: uuid.UUID,
+        title: str | None = None,
+        description: str | None = None,
+        associated_text: str | None = None,
+    ) -> AwdioKBImage | None:
+        """
+        Update an awdio KB image's metadata.
+
+        If associated_text changes, regenerates the embedding.
+
+        Returns:
+            The updated AwdioKBImage record, or None if not found
+        """
+        image = await db.get(AwdioKBImage, image_id)
+        if not image:
+            return None
+
+        if title is not None:
+            image.title = title
+        if description is not None:
+            image.description = description
+        if associated_text is not None and associated_text != image.associated_text:
+            image.associated_text = associated_text
+            # Regenerate embedding when associated_text changes
+            image.embedding = await self.embedding_service.embed_text(associated_text)
+
+        await db.commit()
+        await db.refresh(image)
+        return image
